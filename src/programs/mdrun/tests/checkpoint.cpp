@@ -154,13 +154,10 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
     SCOPED_TRACE("End of trajectory sanity");
     // Running a few steps - we expect the checkpoint to be equal
     // to the final configuration
-    fprintf(stderr, "Running simulation\n");
     runSimulation(mdpFieldValues, 16);
-    fprintf(stderr, "Ran simulation, about to compare output files\n");
     compareCptAndTrr(runner_.fullPrecisionTrajectoryFileName_,
                      runner_.cptOutputFileName_,
                      { trajectoryMatchSettings, trajectoryTolerances });
-    fprintf(stderr, "Compared checkpoint and tpr\n");
 
     // This choice needs to stay in sync with the parameter lists so
     // that at least one test case does not do the fast return.
@@ -171,7 +168,6 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
         return;
     }
 
-    fprintf(stderr, "Checking tools on the checkpoint file\n");
     // We want to check that gmx tools like grompp, trjconv,
     // and dump work with checkpoint files, but we don't want to save
     // a particular checkpoint file in the repo because the format is
@@ -182,7 +178,7 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
     // checkpoint files for different kinds of simulation, hence the
     // fast return above.
     {
-        fprintf(stderr,"gmx dump works with checkpoint file");
+        SCOPED_TRACE("gmx dump works with checkpoint file");
 
         std::vector<const char*> args = { "gmx" };
         CommandLine              commandLine(args);
@@ -192,12 +188,12 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
         // way to redirect the output of gmx dump to a file, even in tests.
     }
     {
-        fprintf(stderr,"gmx trjconv works with checkpoint file");
+        SCOPED_TRACE("gmx trjconv works with checkpoint file");
         const std::filesystem::path outputFile =
                 fileManager_.getTemporaryFilePath("trjconv-output.trr");
 
         {
-            fprintf(stderr,"Running trjconv");
+            SCOPED_TRACE("Running trjconv");
             std::vector<const char*> args = { "gmx" };
             CommandLine              commandLine(args);
             commandLine.addOption("-f", runner_.cptOutputFileName_);
@@ -216,12 +212,12 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
                 << "Only one frame can have been converted from a checkpoint file";
     }
     {
-        fprintf(stderr,"gmx trjconv -dump works with checkpoint file");
+        SCOPED_TRACE("gmx trjconv -dump works with checkpoint file");
         const std::filesystem::path dumpedFrame =
                 fileManager_.getTemporaryFilePath("dumped-frame.trr");
 
         {
-            fprintf(stderr,"Running trjconv -dump");
+            SCOPED_TRACE("Running trjconv -dump");
             std::vector<const char*> args = { "gmx" };
             CommandLine              commandLine(args);
             commandLine.addOption("-f", runner_.cptOutputFileName_);
@@ -242,7 +238,7 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
                                                 "checkpoint file (or written with trjconv -dump)";
     }
     {
-        fprintf(stderr,"gmx grompp -t works with checkpoint file");
+        SCOPED_TRACE("gmx grompp -t works with checkpoint file");
         const std::filesystem::path newTpr =
                 fileManager_.getTemporaryFilePath("from-checkpoint.tpr");
         const std::filesystem::path anotherMdpOutputFileName =

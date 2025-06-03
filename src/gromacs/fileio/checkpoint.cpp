@@ -2359,7 +2359,6 @@ void write_checkpoint_data(const std::filesystem::path&      filename,
                            std::vector<gmx_file_position_t>* outputfiles,
                            gmx::WriteCheckpointDataHolder*   modularSimulatorCheckpointData)
 {
-    fprintf(stderr, "Writing checkpoint data\n");
     t_fileio* fio            = gmx_fio_open(filename, "w");
     XDR*      xdr            = gmx_fio_getxdr(fio);
     headerContents.flags_eks = 0;
@@ -2508,7 +2507,6 @@ void write_checkpoint_data(const std::filesystem::path&      filename,
     fcCheckpoint();
 #endif
     gmx_fio_close(fio);
-    fprintf(stderr, "Wrote checkpoint data\n");
 }
 
 static void check_int(FILE* fplog, const char* type, int p, int f, gmx_bool* mm)
@@ -3074,7 +3072,6 @@ static CheckpointHeaderContents read_checkpoint_data(t_fileio*                  
 
 void read_checkpoint_trxframe(const std::filesystem::path& filename, t_trxframe* fr)
 {
-    fprintf(stderr, "Reading checkpoint trxframe\n");
     t_fileio*                        fio = gmx_fio_open(filename, "r");
     t_state                          state;
     std::vector<gmx_file_position_t> outputfiles;
@@ -3120,7 +3117,6 @@ void read_checkpoint_trxframe(const std::filesystem::path& filename, t_trxframe*
     {
         gmx_file("Cannot read/write checkpoint; corrupt file, or maybe you are out of disk space?");
     }
-    fprintf(stderr, "Read checkpoint trxframe\n");
 }
 
 void list_checkpoint(const std::filesystem::path& fn, FILE* out)
@@ -3220,7 +3216,6 @@ void list_checkpoint(const std::filesystem::path& fn, FILE* out)
 CheckpointHeaderContents read_checkpoint_simulation_part_and_filenames(const std::filesystem::path& filename,
                                                                        std::vector<gmx_file_position_t>* outputfiles)
 {
-    fprintf(stderr, "Reading checkpoint simulation part and filenames\n");
     t_fileio*                     fio = gmx_fio_open(filename, "r");
     t_state                       state;
     gmx::ReadCheckpointDataHolder modularSimulatorCheckpointData;
@@ -3230,6 +3225,5 @@ CheckpointHeaderContents read_checkpoint_simulation_part_and_filenames(const std
     {
         gmx_file("Cannot read/write checkpoint; corrupt file, or maybe you are out of disk space?");
     }
-    fprintf(stderr, "Read checkpoint simulation part and filenames\n");
     return headerContents;
 }
