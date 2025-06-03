@@ -3088,7 +3088,6 @@ void read_checkpoint_trxframe(const std::filesystem::path& filename, t_trxframe*
         {
             gmx_file("Cannot read/write checkpoint; corrupt file, or maybe you are out of disk space?");
         }
-        fprintf(stderr, "Read checkpoint trxframe\n");
         return;
     }
 
