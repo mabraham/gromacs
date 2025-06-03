@@ -136,9 +136,7 @@ void TestFileManager::Impl::removeFiles()
 {
     for (const auto& file : files_)
     {
-        fprintf(stderr, "Removing %s\n", file.string().c_str());
         std::filesystem::remove(file);
-        fprintf(stderr, "Removed %s\n", file.string().c_str());
     }
     files_.clear();
 }
@@ -151,12 +149,10 @@ TestFileManager::TestFileManager() : impl_(new Impl(Impl::s_globalOutputTempDire
 
 TestFileManager::~TestFileManager()
 {
-    fprintf(stderr, "Destructing TestFileManager\n");
     if (g_bDeleteFilesAfterTest)
     {
         impl_->removeFiles();
     }
-    fprintf(stderr, "Destructed TestFileManager\n");
 }
 
 std::filesystem::path TestFileManager::getTemporaryFilePath(const std::filesystem::path& suffix)

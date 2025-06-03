@@ -164,7 +164,6 @@ TEST_P(CheckpointCoordinatesSanityChecks, WithinTolerances)
     if (integrator != "md" or simulationName != "spc2" or temperatureCoupling != "no"
         or pressureCoupling != "no")
     {
-        fprintf(stderr, "Doing fast return\n");
         return;
     }
 

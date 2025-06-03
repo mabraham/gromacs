@@ -375,9 +375,7 @@ void MdrunTestFixtureBase::SetUpTestSuite()
 // static
 void MdrunTestFixtureBase::TearDownTestSuite()
 {
-    fprintf(stderr, "Entering MdrunTestFixtureBase::TearDownTestSuite\n");
     s_hwinfo.reset(nullptr);
-    fprintf(stderr, "Leaving MdrunTestFixtureBase::TearDownTestSuite\n");
 }
 
 MdrunTestFixtureBase::MdrunTestFixtureBase()
@@ -387,9 +385,7 @@ MdrunTestFixtureBase::MdrunTestFixtureBase()
 #endif
 }
 
-MdrunTestFixtureBase::~MdrunTestFixtureBase() {
-    fprintf(stderr, "Destructing MdrunTestFixtureBase\n");
-}
+MdrunTestFixtureBase::~MdrunTestFixtureBase() {}
 
 // ====
 
@@ -397,7 +393,6 @@ MdrunTestFixture::MdrunTestFixture() : runner_(&fileManager_) {}
 
 MdrunTestFixture::~MdrunTestFixture()
 {
-    fprintf(stderr, "Destructing MdrunTestFixture\n");
 #if GMX_LIB_MPI
     // fileManager_ should only clean up after all the ranks are done.
     MPI_Barrier(MdrunTestFixtureBase::s_communicator);
