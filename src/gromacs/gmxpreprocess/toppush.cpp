@@ -1413,7 +1413,7 @@ void push_cmaptype(Directive                                                    
                                              residueTypeNames[4].c_str());
             }
             const long int numFound = std::distance(flattenedGridA.begin(), gridEntryIt);
-            message += gmx::formatString(": found %ld, expected %zu", numFound flattenedGridA.size());
+            message += gmx::formatString(": found %ld, expected %zu", numFound, flattenedGridA.size());
             wi->addError(message);
         }
 
