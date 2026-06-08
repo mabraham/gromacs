@@ -844,7 +844,7 @@ bool read_next_frame(const gmx_output_env_t* oenv, t_trxstatus* status, t_trxfra
 
     const bool buildIsDoublePrecision = GMX_DOUBLE;
     const bool compareTimesAsDouble =
-            buildIsDoublePrecision && (status->fio ? gmx_fio_is_double(status->fio) : false);
+        ((buildIsDoublePrecision) && (status->fio ? gmx_fio_is_double(status->fio) : false);
     do
     {
         clear_trxframe(fr, FALSE);
