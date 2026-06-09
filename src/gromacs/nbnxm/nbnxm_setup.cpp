@@ -274,12 +274,17 @@ static NbnxmKernelSetup pickNbnxnKernelCpu(const t_inputrec&    inputrec,
     {
         return NbnxmKernelSetup{ NbnxmKernelType::Cpu1x1_PlainC, EwaldExclusionType::Table };
     }
-    const bool nbnxmModuleSupportsSimd = nbnxmSimdSupported(mdlog, inputrec);
-    if ((GMX_SIMD) && useSimd && nbnxmModuleSupportsSimd && !forcePlainC4x4)
+#ifdef _MSC_VER
+#    pragma warning(disable : 6237)
+#endif
+    if (GMX_SIMD && useSimd && nbnxmSimdSupported(mdlog, inputrec) && !forcePlainC4x4)
     {
         return NbnxmKernelSetup{ pickNbnxmKernelCpuSimdType(inputrec, hardwareInfo),
                                  pickNbnxmKernelCpuSimdExclusion(hardwareInfo) };
     }
+#ifdef _MSC_VER
+#    pragma warning(pop)
+#endif
     return NbnxmKernelSetup{ NbnxmKernelType::Cpu4x4_PlainC, EwaldExclusionType::Table };
 }
 
