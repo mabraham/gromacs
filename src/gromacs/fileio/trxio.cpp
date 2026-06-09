@@ -842,15 +842,11 @@ bool read_next_frame(const gmx_output_env_t* oenv, t_trxstatus* status, t_trxfra
 
     pt = status->tf;
 
-#ifdef _MSC_VER
-#    pragma warning(disable : 6237)
-#endif
+    MSVC_DIAGNOSTIC_IGNORE(6237) // We intend to skip calling gmx_fio_is_double sometimes
     const bool buildIsDoublePrecision = GMX_DOUBLE;
     const bool compareTimesAsDouble =
             (buildIsDoublePrecision && (status->fio ? gmx_fio_is_double(status->fio) : false));
-#ifdef _MSC_VER
-#    pragma warning(pop)
-#endif
+    MSVC_DIAGNOSTIC_RESET
     do
     {
         clear_trxframe(fr, FALSE);
