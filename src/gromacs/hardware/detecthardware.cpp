@@ -142,7 +142,7 @@ static DeviceDetectionResult detectAllDeviceInformation(const PhysicalNodeCommun
     isMainRankOfPhysicalNode = true;
 #endif
 
-   MSVC_DIAGNOSTIC_IGNORE(6285) // We intend to always detect with OpenCL or SYCL
+    MSVC_DIAGNOSTIC_IGNORE(6285) // We intend to always detect with OpenCL or SYCL
     /* The SYCL and OpenCL support requires us to run detection on all
      * ranks.
      *
