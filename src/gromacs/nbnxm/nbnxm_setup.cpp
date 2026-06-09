@@ -274,7 +274,8 @@ static NbnxmKernelSetup pickNbnxnKernelCpu(const t_inputrec&    inputrec,
     {
         return NbnxmKernelSetup{ NbnxmKernelType::Cpu1x1_PlainC, EwaldExclusionType::Table };
     }
-    if ((GMX_SIMD) && useSimd && nbnxmSimdSupported(mdlog, inputrec) && !forcePlainC4x4)
+    const bool nbnxmModuleSupportsSimd = nbnxmSimdSupported(mdlog, inputrec);
+    if ((GMX_SIMD) && useSimd && nbnxmModuleSupportsSimd && !forcePlainC4x4)
     {
         return NbnxmKernelSetup{ pickNbnxmKernelCpuSimdType(inputrec, hardwareInfo),
                                  pickNbnxmKernelCpuSimdExclusion(hardwareInfo) };
@@ -349,10 +350,16 @@ static NbnxmKernelSetup pick_nbnxn_kernel(const gmx::MDLogger&     mdlog,
                                      sc_gpuNumClusterPerBinZ(gpuPairlistType));
     }
 
+#ifdef _MSC_VER
+#    pragma warning(disable : 6285)
+#endif
     // Warn when using non-SIMD CPU kernels on architectures with (fast) SIMD support
     constexpr bool haveSimdSupportForArch =
-            ((c_architecture == Architecture::X86) || (c_architecture == Architecture::Arm)
-             || (c_architecture == Architecture::PowerPC));
+            (c_architecture == Architecture::X86 || c_architecture == Architecture::Arm
+             || c_architecture == Architecture::PowerPC);
+#ifdef _MSC_VER
+#    pragma warning(pop)
+#endif
     if (kernelTypeUsesSimplePairlist(kernelSetup.kernelType)
         && !kernelTypeIsSimd(kernelSetup.kernelType) && haveSimdSupportForArch)
     {
