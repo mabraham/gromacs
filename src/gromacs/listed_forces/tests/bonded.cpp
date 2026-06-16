@@ -63,6 +63,7 @@
 
 #include "gromacs/gpu_utils/capabilities.h"
 #include "gromacs/listed_forces/listed_forces.h"
+#include "gromacs/listed_forces/listed_forces_gpu.h"
 #include "gromacs/math/paddedvector.h"
 #include "gromacs/mdtypes/md_enums.h"
 #include "gromacs/pbcutil/ishift.h"
@@ -75,6 +76,7 @@
 #include "gromacs/utility/vec.h"
 #include "gromacs/utility/vectypes.h"
 
+#include "testutils/hardware_test_fixture.h"
 #include "testutils/naming.h"
 #include "testutils/refdata.h"
 #include "testutils/test_device.h"
@@ -82,7 +84,14 @@
 #include "testutils/testasserts.h"
 
 #include "bondedtestdata.h"
-#include "bondedtestrunners.h"
+
+#if GMX_GPU && !GMX_GPU_OPENCL
+#    include "gromacs/gpu_utils/devicebuffer.h"
+#    include "gromacs/mdtypes/enerdata.h"
+#    include "gromacs/mdtypes/simulation_workload.h"
+#    include "gromacs/nbnxm/gpu_types_common.h"
+#    include "gromacs/topology/forcefieldparameters.h"
+#endif
 
 namespace gmx
 {
@@ -91,9 +100,18 @@ namespace test
 namespace
 {
 
-//! Parameter tuple type for listed forces tests
-using ListedForcesParametersTuple =
-        std::tuple<iListInput, PaddedVector<RVec>, PbcType, BondedKernelFlavor, real>;
+//! Input configuration (the physical scenario: bonds, coordinates, PBC, FEP lambda)
+using ListedForcesInputConfig = std::tuple<iListInput, PaddedVector<RVec>, PbcType, real>;
+
+/*! \brief Execution modes for listed forces tests
+ *
+ * These control how values are computed: forces only vs
+ * forces+virial+energy, SIMD vs not, etc. */
+using ListedForcesExecutionModes = std::tuple<BondedKernelFlavor>;
+
+//! Hardware and execution test helper for listed forces
+using ListedForcesTestHelper =
+        HardwareAndExecutionTestHelper<ListedForcesInputConfig, ListedForcesExecutionModes>;
 
 //! Formatter for iListInput - use function type and FEP status
 // NOLINTNEXTLINE(cppcoreguidelines-interfaces-global-init)
@@ -106,7 +124,7 @@ auto formatIListInput = [](const iListInput& input)
     // Safe from global-init ordering problems because interaction_function
     // will be defined before this lambda is called.
     std::string name = interaction_function[input.ftype.value()].name;
-    if (input.fep)
+    if (input.hasFepParameters())
     {
         name.append("_FEP");
     }
@@ -129,82 +147,54 @@ auto formatPbcType = [](PbcType pbc)
 //! Formatter for BondedKernelFlavor - creates valid GTest parameter names
 auto formatFlavor = [](BondedKernelFlavor flavor)
 {
-    switch (flavor)
-    {
-        case BondedKernelFlavor::ForcesSimdWhenAvailable:
-            return std::string("ForcesSimdWhenAvailable");
-        case BondedKernelFlavor::ForcesNoSimd: return std::string("ForcesNoSimd");
-        case BondedKernelFlavor::ForcesAndVirialAndEnergy:
-            return std::string("ForcesAndVirialAndEnergy");
-        case BondedKernelFlavor::ForcesAndEnergy: return std::string("ForcesAndEnergy");
-        default: return std::string("UnknownFlavor");
-    }
+    static constexpr gmx::EnumerationArray<BondedKernelFlavor, const char*> flavorNames = {
+        "ForcesSimdWhenAvailable", "ForcesNoSimd", "ForcesAndVirialAndEnergy", "ForcesAndEnergy"
+    };
+    return flavorNames[flavor];
 };
 
-//! Formatter for lambda parameter
-auto formatLambda = [](real lambda) { return formatString("Lambda%s", toString(lambda).c_str()); };
+//! Formatter for FEP lambda parameter
+auto formatFepLambda = [](real lambda) { return formatString("Lambda%s", toString(lambda).c_str()); };
 
-//! Test naming helper
-const NameOfTestFromTuple<ListedForcesParametersTuple> sc_testNamer{
-    std::make_tuple(formatIListInput, formatCoordinates, formatPbcType, formatFlavor, formatLambda)
-};
-
-/*! \brief Reference data filename maker (excludes hardware and flavor for hardware-independent naming)
+/*! \brief Test namer and reference data maker with automatic execution mode skipping
  *
  * Reference data files are named like:
- *   Bond_ListedForcesTest_Ifunc_Bonds_4atoms_PBCNo_Lambda0_5.xml
- * Test names like:
- *   Bond/ListedForcesTest.Ifunc/Bonds_4atoms_PBCNo_ForcesAndVirialAndEnergy_Lambda0_5
+ *   Bond_ListedForcesTest_Ifunc_BONDS_4atoms_no_Lambda0.xml
+ * Test names include hardware and flavor:
+ *   Bond/ListedForcesTest.Ifunc/BONDS_4atoms_no_Lambda0_ForcesAndVirialAndEnergy_GPU1
+ *
+ * Note: BondedKernelFlavor is automatically skipped in reference data names because
+ * it only controls what kinds of things are computed (forces only vs forces+virial+energy).
+ * When the same quantity is computed by a different flavor, results should match.
  */
-const RefDataFilenameMaker<ListedForcesParametersTuple> sc_refDataFilenameMaker{ std::make_tuple(
-        formatIListInput,
-        formatCoordinates,
-        formatPbcType,
-        [](BondedKernelFlavor) { return std::string(); },
-        formatLambda) };
+const auto [sc_testNamer, sc_refDataFilenameMaker] = ListedForcesTestHelper::makeNamers(
+        std::make_tuple(formatIListInput, formatCoordinates, formatPbcType, formatFepLambda),
+        std::make_tuple(formatFlavor));
 
 /*! \brief Test fixture for listed forces
  *
  * Uses hardware-independent reference-data naming via RefDataFilenameMaker.
  */
-class ListedForcesTest :
-    public ::testing::TestWithParam<std::tuple<iListInput, PaddedVector<RVec>, PbcType, BondedKernelFlavor, real>>
+class ListedForcesTest : public HardwareTestFixture<ListedForcesTestHelper>
 {
-public:
-    //! Before any test is run, work out whether any compatible GPUs exist.
-    static std::vector<std::unique_ptr<IBondedTestRunner>> getRunners()
-    {
-        std::vector<std::unique_ptr<IBondedTestRunner>> runners;
-        runners.push_back(std::make_unique<BondedHostTestRunner>());
-        if (GpuConfigurationCapabilities::Bonded)
-        {
-            for (const auto& testDevice : getTestHardwareEnvironment()->getTestDeviceList())
-            {
-                runners.push_back(std::make_unique<BondedDeviceTestRunner>(*testDevice));
-            }
-        }
-        return runners;
-    }
-
 protected:
+    iListInput             input_;
     matrix                 box_;
     t_pbc                  pbc_;
     PaddedVector<RVec>     x_;
     PbcType                pbcType_;
-    iListInput             input_;
-    BondedKernelFlavor     flavor_;
     real                   lambda_;
-    TestReferenceData      refData_;
+    BondedKernelFlavor     flavor_;
     FloatingPointTolerance shiftForcesTolerance_ = defaultRealTolerance();
 
-    // Reference data uses RefDataFilenameMaker for hardware-independent naming
-    ListedForcesTest() : refData_(sc_refDataFilenameMaker(GetParam()))
+    ListedForcesTest() :
+        HardwareTestFixture(sc_refDataFilenameMaker),
+        input_(std::get<0>(GetParam())),
+        x_(std::get<1>(GetParam())),
+        pbcType_(std::get<2>(GetParam())),
+        lambda_(std::get<3>(GetParam())),
+        flavor_(std::get<4>(GetParam()))
     {
-        input_   = std::get<0>(GetParam());
-        x_       = std::get<1>(GetParam());
-        pbcType_ = std::get<2>(GetParam());
-        flavor_  = std::get<3>(GetParam());
-        lambda_  = std::get<4>(GetParam());
         clear_mat(box_);
         box_[0][0] = box_[1][1] = box_[2][2] = 1.5;
         set_pbc(&pbc_, pbcType_, box_);
@@ -230,75 +220,248 @@ protected:
                                                        std::numeric_limits<uint64_t>::max(),
                                                        false);
     }
-    void testOneIfunc(TestReferenceChecker* checker, const std::vector<t_iatom>& iatoms, const real lambda)
-    {
-        SCOPED_TRACE(std::string("Testing PBC type: ") + c_pbcTypeNames[pbcType_]);
 
-        for (const auto& runner : getRunners())
+    void testOneIfunc(TestReferenceChecker* checker, const std::vector<t_iatom>& iatoms)
+    {
+        SCOPED_TRACE(std::string("Testing PBC type: ") + c_pbcTypeNames[pbcType_] + ", on "
+                     + hardwareContext()->description() + " with bonded kernel flavor: "
+                     + c_bondedKernelFlavorStrings[flavor_] + ", lambda: " + toString(lambda_));
+
+        OutputQuantities output;
+
+        if (isGpuTest())
         {
-            if (runner->supportsFlavor(flavor_, input_, lambda))
+#if GMX_GPU && !GMX_GPU_OPENCL
+            GMX_RELEASE_ASSERT(flavor_ == BondedKernelFlavor::ForcesAndVirialAndEnergy,
+                               "GPU runner only supports ForcesAndVirialAndEnergy flavor");
+
+            const int  ftype    = static_cast<int>(input_.ftype.value());
+            const int  numAtoms = c_numAtomsBondedTest;
+            const real scaleFac = 1.0f;
+
+            // Build minimal force-field parameters (single type)
+            gmx_ffparams_t ffparams;
+            ffparams.functype = { input_.ftype.value() };
+            ffparams.iparams  = { input_.iparams };
+
+            // Build minimal interaction definitions
+            InteractionDefinitions idef(ffparams);
+            idef.il[ftype].iatoms                   = iatoms;
+            idef.ilsort                             = ilsortNO_FE;
+            idef.numNonperturbedInteractions[ftype] = static_cast<int>(iatoms.size());
+
+            // Identity atom order (same as input coordinates)
+            std::vector<int> nbnxmAtomOrder(numAtoms);
+            for (int i = 0; i < numAtoms; i++)
             {
-                SCOPED_TRACE("Testing on " + runner->hardwareDescription()
-                             + " with bonded kernel flavor: " + c_bondedKernelFlavorStrings[flavor_]);
-                OutputQuantities output;
-                runner->run(input_, x_, pbc_, lambda, iatoms, flavor_, &output);
-                EXPECT_TRUE((input_.fep || (output.dvdlambda == 0.0)))
-                        << "dvdlambda was " << output.dvdlambda;
-                checkOutput(checker, output, flavor_);
-                auto shiftForcesChecker = checker->checkCompound("Shift-Forces", "Shift-forces");
-                if (computeVirial(flavor_))
-                {
-                    shiftForcesChecker.setDefaultTolerance(shiftForcesTolerance_);
-                    shiftForcesChecker.checkVector(output.fshift[c_centralShiftIndex], "Central");
-                }
-                else
-                {
-                    shiftForcesChecker.disableUnusedEntriesCheck();
-                }
+                nbnxmAtomOrder[i] = i;
             }
+
+            // Host-side xq (x, y, z, q) for upload
+            std::vector<real> h_xq;
+            h_xq.reserve(numAtoms * 4);
+            for (int i = 0; i < numAtoms; i++)
+            {
+                h_xq.emplace_back(x_[i][XX]);
+                h_xq.emplace_back(x_[i][YY]);
+                h_xq.emplace_back(x_[i][ZZ]);
+                h_xq.emplace_back(c_bondedTestCharges[i]);
+            }
+
+            // Allocate device buffers for NBAtomDataGpu (only xq, f, fShift used by bonded)
+            NBAtomDataGpu nbAtomDataGpu = {};
+            nbAtomDataGpu.numAtoms      = numAtoms;
+            nbAtomDataGpu.numAtomsLocal = numAtoms;
+            nbAtomDataGpu.numAtomsAlloc = numAtoms;
+
+            allocateDeviceBuffer(&nbAtomDataGpu.xq, numAtoms, *hardwareContext()->deviceContext());
+            allocateDeviceBuffer(&nbAtomDataGpu.f, numAtoms, *hardwareContext()->deviceContext());
+            allocateDeviceBuffer(
+                    &nbAtomDataGpu.fShift, c_numShiftVectors, *hardwareContext()->deviceContext());
+
+            copyToDeviceBuffer(&nbAtomDataGpu.xq,
+                               reinterpret_cast<Float4*>(h_xq.data()),
+                               0,
+                               numAtoms,
+                               *hardwareContext()->deviceStream(),
+                               GpuApiCallBehavior::Sync,
+                               nullptr);
+            clearDeviceBufferAsync(&nbAtomDataGpu.f, 0, numAtoms, *hardwareContext()->deviceStream());
+            clearDeviceBufferAsync(
+                    &nbAtomDataGpu.fShift, 0, c_numShiftVectors, *hardwareContext()->deviceStream());
+
+            // ListedForcesGpu (wallcycle can be nullptr – start/stop check for null)
+            ListedForcesGpu listedForcesGpu(ffparams,
+                                            scaleFac,
+                                            1,
+                                            *hardwareContext()->deviceContext(),
+                                            *hardwareContext()->deviceStream(),
+                                            nullptr);
+
+            listedForcesGpu.updateHaveInteractions(idef);
+            listedForcesGpu.updateInteractionListsAndDeviceBuffers(nbnxmAtomOrder, idef, &nbAtomDataGpu);
+
+            if (!listedForcesGpu.haveInteractions())
+            {
+                freeDeviceBuffer(&nbAtomDataGpu.xq);
+                freeDeviceBuffer(&nbAtomDataGpu.f);
+                freeDeviceBuffer(&nbAtomDataGpu.fShift);
+                FAIL() << "ListedForcesGpu reported no interactions for type " << ftype;
+            }
+
+            listedForcesGpu.setPbc(pbc_.pbcType, pbc_.box, false);
+
+            StepWorkload stepWork;
+            stepWork.computeVirial = true;
+            stepWork.computeEnergy = true;
+            listedForcesGpu.launchKernel(stepWork);
+            listedForcesGpu.launchEnergyTransfer();
+
+            gmx_enerdata_t enerd(1, nullptr);
+            listedForcesGpu.waitAccumulateEnergyTerms(&enerd);
+
+            // Copy forces and shift forces back
+            std::vector<Float3> h_f(numAtoms);
+            std::vector<Float3> h_fShift(c_numShiftVectors);
+            copyFromDeviceBuffer(h_f.data(),
+                                 &nbAtomDataGpu.f,
+                                 0,
+                                 numAtoms,
+                                 *hardwareContext()->deviceStream(),
+                                 GpuApiCallBehavior::Sync,
+                                 nullptr);
+            copyFromDeviceBuffer(h_fShift.data(),
+                                 &nbAtomDataGpu.fShift,
+                                 0,
+                                 c_numShiftVectors,
+                                 *hardwareContext()->deviceStream(),
+                                 GpuApiCallBehavior::Sync,
+                                 nullptr);
+
+            // Fill test output (Float3 is RVec on HIP, uses [0],[1],[2])
+            output.energy    = enerd.term[ftype];
+            output.dvdlambda = 0.0;
+            for (int i = 0; i < numAtoms; i++)
+            {
+                output.f[i][XX] = h_f[i][XX];
+                output.f[i][YY] = h_f[i][YY];
+                output.f[i][ZZ] = h_f[i][ZZ];
+                output.f[i][3]  = 0.0;
+            }
+            for (int s = 0; s < c_numShiftVectors; s++)
+            {
+                output.fshift[s][XX] = h_fShift[s][XX];
+                output.fshift[s][YY] = h_fShift[s][YY];
+                output.fshift[s][ZZ] = h_fShift[s][ZZ];
+            }
+
+            freeDeviceBuffer(&nbAtomDataGpu.xq);
+            freeDeviceBuffer(&nbAtomDataGpu.f);
+            freeDeviceBuffer(&nbAtomDataGpu.fShift);
+#else  // GMX_GPU && !GMX_GPU_OPENCL
+            GMX_THROW(gmx::InternalError("GPU hardware context with no test code"));
+#endif // GMX_GPU && !GMX_GPU_OPENCL
+        }
+        else
+        {
+            std::vector<int> ddgatindex = { 0, 1, 2, 3 };
+
+            output.energy = calculateSimpleBond(input_.ftype.value(),
+                                                iatoms.size(),
+                                                iatoms.data(),
+                                                &input_.iparams,
+                                                as_rvec_array(x_.data()),
+                                                output.f,
+                                                output.fshift,
+                                                &pbc_,
+                                                lambda_,
+                                                &output.dvdlambda,
+                                                c_bondedTestCharges,
+                                                nullptr,
+                                                nullptr,
+                                                nullptr,
+                                                ddgatindex.data(),
+                                                flavor_);
+        }
+
+        // Now check the output
+        EXPECT_TRUE((input_.hasFepParameters() || (output.dvdlambda == 0.0)))
+                << "dvdlambda was " << output.dvdlambda;
+        checkOutput(checker, output, flavor_);
+        auto shiftForcesChecker = checker->checkCompound("Shift-Forces", "Shift-forces");
+        if (computeVirial(flavor_))
+        {
+            shiftForcesChecker.setDefaultTolerance(shiftForcesTolerance_);
+            shiftForcesChecker.checkVector(output.fshift[c_centralShiftIndex], "Central");
+        }
+        else
+        {
+            shiftForcesChecker.disableUnusedEntriesCheck();
         }
     }
     void testIfunc()
     {
         EXPECT_TRUE(input_.ftype.has_value() && input_.ftype < InteractionFunction::Count);
 
-        TestReferenceChecker checker = refData_.rootChecker();
-
-        // SIMD flavors don't compute energies, so they won't use those fields from the
-        // reference data (which is generated by ForcesAndVirialAndEnergy flavor)
-        if (flavor_ == BondedKernelFlavor::ForcesSimdWhenAvailable)
-        {
-            checker.disableUnusedEntriesCheck();
-        }
+        // Activate device if GPU
+        activateHardware();
 
         // We need quite specific tolerances here since angle functions
         // etc. are not very precise and reproducible.
         test::FloatingPointTolerance tolerance(test::FloatingPointTolerance(
                 input_.ftoler, input_.dtoler, 1.0e-6, 1.0e-12, 10000, 100, false));
-        checker.setDefaultTolerance(tolerance);
+        checker().setDefaultTolerance(tolerance);
 
-        TestReferenceChecker thisChecker =
-                checker.checkCompound("FunctionType", interaction_function[input_.ftype.value()].name);
+        TestReferenceChecker thisChecker = checker().checkCompound(
+                "FunctionType", interaction_function[input_.ftype.value()].name);
 
         std::vector<t_iatom> iatoms;
         fillIatoms(input_.ftype, &iatoms);
 
-        testOneIfunc(&thisChecker, iatoms, lambda_);
+        testOneIfunc(&thisChecker, iatoms);
+    }
+
+    //! Override to add parameter-dependent skip logic
+    void addCustomSkipReasons(MessageStringCollector& skipReasons) override
+    {
+        const bool isFep = input_.hasFepParameters();
+        const bool isGpu = isGpuTest();
+
+        // CPU + GPU shared skip conditions
+        skipReasons.appendIf(!isFep && lambda_ != 0.0, "Non-FEP inputs only support lambda=0.0");
+        skipReasons.appendIf(isFep && flavor_ == BondedKernelFlavor::ForcesSimdWhenAvailable,
+                             "FEP does not support ForcesSimdWhenAvailable flavor");
+
+        // GPU-specific skip conditions
+        if (isGpu)
+        {
+            // TODO forces-only should also be tested on GPUs
+            skipReasons.appendIf(flavor_ != BondedKernelFlavor::ForcesAndVirialAndEnergy,
+                                 "GPU bonded only supports ForcesAndVirialAndEnergy flavor");
+            skipReasons.appendIf(isFep,
+                                 "GPU bonded does not support free-energy perturbation (FEP)");
+            skipReasons.appendIf(lambda_ != 0.0, "GPU does not support lambda != 0.0");
+            skipReasons.appendIf(!input_.ftype.has_value(), "Interaction type not specified");
+            skipReasons.appendIf(
+                    input_.ftype.has_value()
+                            && std::find(fTypesOnGpu.begin(), fTypesOnGpu.end(), input_.ftype.value())
+                                       == fTypesOnGpu.end(),
+                    formatString("Interaction type '%s' not implemented on GPU",
+                                 interaction_function[input_.ftype.value()].name));
+        }
+        // CPU-specific skip conditions
+        else
+        {
+            skipReasons.appendIf(flavor_ == BondedKernelFlavor::ForcesSimdWhenAvailable && lambda_ != 0.0,
+                                 formatString("CPU does not support %s with lambda=%.1f",
+                                              c_bondedKernelFlavorStrings[flavor_].c_str(),
+                                              lambda_));
+        }
     }
 };
 
 TEST_P(ListedForcesTest, Ifunc)
 {
-    if (!input_.fep && lambda_ != 0.0)
-    {
-        GTEST_SKIP() << "Non-FEP test with non-zero lambda";
-    }
-
-    if (input_.fep && lambda_ != 0.0 && flavor_ == BondedKernelFlavor::ForcesSimdWhenAvailable)
-    {
-        GTEST_SKIP() << "SIMD flavor not supported for FEP with lambda != 0";
-    }
-
     // When updating reference data, skip SIMD flavor tests since they don't compute
     // energy fields. Reference data should be generated by ForcesAndVirialAndEnergy flavor.
     if (referenceDataMode() != ReferenceDataMode::Compare
@@ -307,9 +470,6 @@ TEST_P(ListedForcesTest, Ifunc)
         GTEST_SKIP() << "Skipping SIMD flavor when updating reference data (use "
                         "ForcesAndVirialAndEnergy for canonical data)";
     }
-
-    // testIfunc() will create the checker, which triggers refdata file loading.
-    // This happens only after skip checks pass, avoiding file-not-found errors.
     testIfunc();
 }
 
@@ -453,8 +613,10 @@ INSTANTIATE_TEST_SUITE_P(Bond,
                          ::testing::Combine(::testing::ValuesIn(c_InputBonds),
                                             ::testing::ValuesIn(c_coordinatesForTests),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 INSTANTIATE_TEST_SUITE_P(Angle,
@@ -462,8 +624,10 @@ INSTANTIATE_TEST_SUITE_P(Angle,
                          ::testing::Combine(::testing::ValuesIn(c_InputAngles),
                                             ::testing::ValuesIn(c_coordinatesForTests),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 INSTANTIATE_TEST_SUITE_P(Dihedral,
@@ -471,8 +635,10 @@ INSTANTIATE_TEST_SUITE_P(Dihedral,
                          ::testing::Combine(::testing::ValuesIn(c_InputDihs),
                                             ::testing::ValuesIn(c_coordinatesForTests),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 INSTANTIATE_TEST_SUITE_P(Polarize,
@@ -480,8 +646,10 @@ INSTANTIATE_TEST_SUITE_P(Polarize,
                          ::testing::Combine(::testing::ValuesIn(c_InputPols),
                                             ::testing::ValuesIn(c_coordinatesForTests),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 INSTANTIATE_TEST_SUITE_P(Restraints,
@@ -489,8 +657,10 @@ INSTANTIATE_TEST_SUITE_P(Restraints,
                          ::testing::Combine(::testing::ValuesIn(c_InputRestraints),
                                             ::testing::ValuesIn(c_coordinatesForTests),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 INSTANTIATE_TEST_SUITE_P(BondZeroLength,
@@ -498,8 +668,10 @@ INSTANTIATE_TEST_SUITE_P(BondZeroLength,
                          ::testing::Combine(::testing::ValuesIn(c_InputBondsZeroLength),
                                             ::testing::ValuesIn(c_coordinatesForTestsZeroBondLength),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 INSTANTIATE_TEST_SUITE_P(AngleZero,
@@ -507,8 +679,10 @@ INSTANTIATE_TEST_SUITE_P(AngleZero,
                          ::testing::Combine(::testing::ValuesIn(c_InputAnglesZeroAngle),
                                             ::testing::ValuesIn(c_coordinatesForTestsZeroAngle),
                                             ::testing::ValuesIn(c_pbcForTests),
+                                            ::testing::ValuesIn(c_lambdaValuesForTests),
                                             ::testing::ValuesIn(c_flavorsForTests),
-                                            ::testing::ValuesIn(c_lambdaValuesForTests)),
+                                            ::testing::ValuesIn(getHardwareContextsWithCapability(
+                                                    GpuConfigurationCapabilities::Bonded))),
                          sc_testNamer);
 
 } // namespace
