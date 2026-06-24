@@ -415,19 +415,18 @@ public:
      *             - .first: Test namer for INSTANTIATE_TEST_SUITE_P
      *             - .second: Reference data maker for test fixture constructor
      */
-    template<typename... InputFormatters, typename... ExecutionFormatters>
-    static auto makeNamers(std::tuple<InputFormatters...>     inputFormatters,
-                           std::tuple<ExecutionFormatters...> executionFormatters)
+    static auto makeNamers(typename detail::ParamsToFormatterVariants<InputConfig>::type inputFormatters,
+                           typename detail::ParamsToFormatterVariants<ExecutionModes>::type executionFormatters)
     {
         // Create test namer with all parameters
-        auto testNamer = NameOfTestFromTuple<DynamicParameters>{ std::tuple_cat(
+        NameOfTestFromTuple<DynamicParameters> testNamer{ std::tuple_cat(
                 inputFormatters,
                 executionFormatters,
                 std::make_tuple([](const TestHardwareContext* ctx) { return ctx->testName(); })) };
 
         // Create reference data maker with only input formatters
         auto executionSkippers = makeEmptyStringTuple<ExecutionModes>();
-        auto refDataMaker      = RefDataFilenameMaker<DynamicParameters>{ std::tuple_cat(
+        RefDataFilenameMaker<DynamicParameters> refDataMaker{ std::tuple_cat(
                 inputFormatters,
                 executionSkippers,
                 std::make_tuple(toEmptyString<const TestHardwareContext*>)) };
