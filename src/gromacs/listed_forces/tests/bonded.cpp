@@ -167,9 +167,15 @@ auto formatFepLambda = [](real lambda) { return formatString("Lambda%s", toStrin
  * it only controls what kinds of things are computed (forces only vs forces+virial+energy).
  * When the same quantity is computed by a different flavor, results should match.
  */
-const auto [sc_testNamer, sc_refDataFilenameMaker] = ListedForcesTestHelper::makeNamers(
-        std::make_tuple(formatIListInput, formatCoordinates, formatPbcType, formatFepLambda),
-        std::make_tuple(formatFlavor));
+ListedForcesTestHelper::NamerMaker sc_makeNamers{
+    std::make_tuple(formatIListInput, formatCoordinates, formatPbcType, formatFepLambda),
+    std::make_tuple(formatFlavor)
+};
+
+const NameOfTestFromTuple<ListedForcesTestHelper::DynamicParameters> sc_testNamer =
+        sc_makeNamers.testNamer();
+const RefDataFilenameMaker<ListedForcesTestHelper::DynamicParameters> sc_refDataFilenameMaker =
+        sc_makeNamers.refDataFilenameMaker();
 
 /*! \brief Test fixture for listed forces
  *

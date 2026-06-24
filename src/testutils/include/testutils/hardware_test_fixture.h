@@ -431,6 +431,37 @@ public:
 
         return std::make_pair(testNamer, refDataMaker);
     }
+
+    class NamerMaker
+    {
+    public:
+        NamerMaker(typename detail::ParamsToFormatterVariants<InputConfig>::type inputFormatters,
+                   typename detail::ParamsToFormatterVariants<ExecutionModes>::type executionFormatters) :
+            inputFormatters_(inputFormatters), executionFormatters_(executionFormatters)
+        {
+        }
+        //! Create test namer with all parameters
+        auto testNamer()
+        {
+            return NameOfTestFromTuple<DynamicParameters>{ std::tuple_cat(
+                    inputFormatters_,
+                    executionFormatters_,
+                    std::make_tuple([](const TestHardwareContext* ctx) { return ctx->testName(); })) };
+        }
+        //! Create reference data maker with only input formatters
+        auto refDataFilenameMaker()
+        {
+            auto executionSkippers = makeEmptyStringTuple<ExecutionModes>();
+            return RefDataFilenameMaker<DynamicParameters>{ std::tuple_cat(
+                    inputFormatters_,
+                    executionSkippers,
+                    std::make_tuple(toEmptyString<const TestHardwareContext*>)) };
+        }
+
+    private:
+        typename detail::ParamsToFormatterVariants<InputConfig>::type    inputFormatters_;
+        typename detail::ParamsToFormatterVariants<ExecutionModes>::type executionFormatters_;
+    };
 };
 
 /*! \brief Flatten nested tuples from Combine(ValuesIn(tuples), ValuesIn(...))
