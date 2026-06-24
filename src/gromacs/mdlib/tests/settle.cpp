@@ -304,13 +304,20 @@ using SettleInputConfig = std::tuple<int, bool, bool, PbcTestType>;
  * implementation, but they should test SIMD vs no SIMD here. */
 using SettleTestHelper = HardwareAndExecutionTestHelper<SettleInputConfig, std::tuple<>>;
 
-//! Test namer and reference data maker
-const auto [sc_testNamer, sc_refDataFilenameMaker] = SettleTestHelper::makeNamers(
-        std::make_tuple([](int n) { return formatString("%dsettles", n); },
-                        [](bool b) { return b ? "velocities" : "novelocities"; },
-                        [](bool b) { return b ? "virial" : "novirial"; },
-                        [](PbcTestType pbc) { return sc_pbcTestTypeNames[pbc]; }),
-        std::make_tuple()); // No execution modes
+//! Maker for test namer and reference data maker
+SettleTestHelper::NamerMaker sc_makeNamers{
+    std::make_tuple([](int n) { return formatString("%dsettles", n); },
+                    [](bool b) { return b ? "velocities" : "novelocities"; },
+                    [](bool b) { return b ? "virial" : "novirial"; },
+                    [](PbcTestType pbc) { return sc_pbcTestTypeNames[pbc]; }),
+    std::make_tuple() // No execution modes
+};
+
+//! Helper object to name tests using all parameters
+const NameOfTestFromTuple<SettleTestHelper::DynamicParameters> sc_testNamer = sc_makeNamers.testNamer();
+//! Helper object to name reference-date files using only input-configuration parameters
+const RefDataFilenameMaker<SettleTestHelper::DynamicParameters> sc_refDataFilenameMaker =
+        sc_makeNamers.refDataFilenameMaker();
 
 /*! \brief Sets of parameters on which to run the tests.
  *

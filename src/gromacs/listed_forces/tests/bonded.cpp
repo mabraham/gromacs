@@ -172,8 +172,10 @@ ListedForcesTestHelper::NamerMaker sc_makeNamers{
     std::make_tuple(formatFlavor)
 };
 
+//! Helper object to name tests using all parameters
 const NameOfTestFromTuple<ListedForcesTestHelper::DynamicParameters> sc_testNamer =
         sc_makeNamers.testNamer();
+//! Helper object to name reference-date files using only input-configuration parameters
 const RefDataFilenameMaker<ListedForcesTestHelper::DynamicParameters> sc_refDataFilenameMaker =
         sc_makeNamers.refDataFilenameMaker();
 

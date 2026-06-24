@@ -228,15 +228,22 @@ std::string formatTimestep(real timestep)
     return formatString("dt%d", timestepInt);
 }
 
-//! Test namer and reference data maker
-const auto [sc_testNamer, sc_refDataFilenameMaker] = LeapFrogTestHelper::makeNamers(
-        std::make_tuple([](int n) { return formatString("%datoms", n); },
-                        formatTimestep,
-                        [](int n) { return formatString("%dsteps", n); },
-                        useString, // Velocity/force pair name
-                        [](int n) { return formatString("tcg%d", n); },
-                        [](int n) { return formatString("nstpc%d", n); }),
-        std::make_tuple()); // No execution modes yet
+//! Maker for test namer and reference data maker
+LeapFrogTestHelper::NamerMaker sc_makeNamers{
+    std::make_tuple([](int n) { return formatString("%datoms", n); },
+                    formatTimestep,
+                    [](int n) { return formatString("%dsteps", n); },
+                    useString, // Velocity/force pair name
+                    [](int n) { return formatString("tcg%d", n); },
+                    [](int n) { return formatString("nstpc%d", n); }),
+    std::make_tuple() // No execution modes
+};
+
+//! Helper object to name tests using all parameters
+const NameOfTestFromTuple<LeapFrogTestHelper::DynamicParameters> sc_testNamer = sc_makeNamers.testNamer();
+//! Helper object to name reference-date files using only input-configuration parameters
+const RefDataFilenameMaker<LeapFrogTestHelper::DynamicParameters> sc_refDataFilenameMaker =
+        sc_makeNamers.refDataFilenameMaker();
 
 //! Named velocity/force combination
 struct VelocityForcePair

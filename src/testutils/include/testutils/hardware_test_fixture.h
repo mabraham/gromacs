@@ -398,9 +398,10 @@ public:
                                     std::declval<ExecutionModes>(),
                                     std::declval<std::tuple<const TestHardwareContext*>>()));
 
-    /*! \brief Create test namer and reference data maker
+    /*! \brief Helper to create test namer and reference data maker
      *
-     * Creates both test namer and reference data maker in one call.
+     * Holds test-parameter formatter tuples so they can be reused to
+     * make consistent test namer and reference data maker objects.
      * Execution modes are automatically skipped in reference data names.
      *
      * The test namer includes all parameters (input config + execution modes + hardware context).
@@ -412,26 +413,12 @@ public:
      * \returns    std::pair of (NameOfTestFromTuple, RefDataFilenameMaker)
      *             - .first: Test namer for INSTANTIATE_TEST_SUITE_P
      *             - .second: Reference data maker for test fixture constructor
+     *
+     * We'd prefer to have a function that returns a std::pair of the
+     * test namer and reference data filename maker objects, but
+     * sometimes clang-19 would then have trouble using structured
+     * bindings.
      */
-    static auto makeNamers(typename detail::ParamsToFormatterVariants<InputConfig>::type inputFormatters,
-                           typename detail::ParamsToFormatterVariants<ExecutionModes>::type executionFormatters)
-    {
-        // Create test namer with all parameters
-        NameOfTestFromTuple<DynamicParameters> testNamer{ std::tuple_cat(
-                inputFormatters,
-                executionFormatters,
-                std::make_tuple([](const TestHardwareContext* ctx) { return ctx->testName(); })) };
-
-        // Create reference data maker with only input formatters
-        auto executionSkippers = makeEmptyStringTuple<ExecutionModes>();
-        RefDataFilenameMaker<DynamicParameters> refDataMaker{ std::tuple_cat(
-                inputFormatters,
-                executionSkippers,
-                std::make_tuple(toEmptyString<const TestHardwareContext*>)) };
-
-        return std::make_pair(testNamer, refDataMaker);
-    }
-
     class NamerMaker
     {
     public:
@@ -440,7 +427,7 @@ public:
             inputFormatters_(inputFormatters), executionFormatters_(executionFormatters)
         {
         }
-        //! Create test namer with all parameters
+        //! Create test namer, using all parameters
         auto testNamer()
         {
             return NameOfTestFromTuple<DynamicParameters>{ std::tuple_cat(
@@ -448,18 +435,20 @@ public:
                     executionFormatters_,
                     std::make_tuple([](const TestHardwareContext* ctx) { return ctx->testName(); })) };
         }
-        //! Create reference data maker with only input formatters
+        //! Create reference data filename maker, using only input-config paramters
         auto refDataFilenameMaker()
         {
-            auto executionSkippers = makeEmptyStringTuple<ExecutionModes>();
+            auto executionModeSkippers = makeEmptyStringTuple<ExecutionModes>();
             return RefDataFilenameMaker<DynamicParameters>{ std::tuple_cat(
                     inputFormatters_,
-                    executionSkippers,
+                    executionModeSkippers,
                     std::make_tuple(toEmptyString<const TestHardwareContext*>)) };
         }
 
     private:
-        typename detail::ParamsToFormatterVariants<InputConfig>::type    inputFormatters_;
+        //! Tuple of formatters for input-configuration parameters
+        typename detail::ParamsToFormatterVariants<InputConfig>::type inputFormatters_;
+        //! Tuple of formatters for execution-mode parameters
         typename detail::ParamsToFormatterVariants<ExecutionModes>::type executionFormatters_;
     };
 };

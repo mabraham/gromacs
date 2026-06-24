@@ -584,10 +584,18 @@ std::string formatConstraintSystem(const ConstraintsTestSystem& system)
     return formatString("%datoms_%s", system.numAtoms, name.c_str());
 }
 
-/*! \brief Test namer and reference data maker */
-const auto [sc_testNamer, sc_refDataFilenameMaker] =
-        ConstraintsTestHelper::makeNamers(std::make_tuple(formatConstraintSystem, formatPbcType),
-                                          std::make_tuple()); // No execution modes
+//! Maker for test namer and reference data maker
+ConstraintsTestHelper::NamerMaker sc_makeNamers{
+    std::make_tuple(formatConstraintSystem, formatPbcType),
+    std::make_tuple() // No execution modes
+};
+
+//! Helper object to name tests using all parameters
+const NameOfTestFromTuple<ConstraintsTestHelper::DynamicParameters> sc_testNamer =
+        sc_makeNamers.testNamer();
+//! Helper object to name reference-date files using only input-configuration parameters
+const RefDataFilenameMaker<ConstraintsTestHelper::DynamicParameters> sc_refDataFilenameMaker =
+        sc_makeNamers.refDataFilenameMaker();
 
 //! Helper class for checking constraints against reference data
 class ConstraintsVerifier
