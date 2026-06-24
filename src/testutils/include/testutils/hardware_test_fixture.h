@@ -407,8 +407,6 @@ public:
      * The reference data maker only includes input config parameters, skipping execution modes
      * and hardware context.
      *
-     * \tparam InputFormatters      Formatter function types for input parameters
-     * \tparam ExecutionFormatters  Formatter function types for execution modes
      * \param[in]  inputFormatters       Tuple of formatters for input config
      * \param[in]  executionFormatters   Tuple of formatters for execution modes
      * \returns    std::pair of (NameOfTestFromTuple, RefDataFilenameMaker)
