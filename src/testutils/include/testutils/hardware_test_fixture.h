@@ -483,16 +483,13 @@ public:
 protected:
     /*! \brief Constructor
      *
-     * \param[in] refDataMaker  Functor to create reference data filename from parameters
-     *
      * \note High-level hardware capability filtering should be done at test
      *        instantiation via ::testing::Combine with getHardwareContextsWithCapability().
      *       Custom parameter-dependent skip logic can be added via the virtual
      *       addCustomSkipReasons() hook, which runs in SetUp(). The reference data
      *       checker is created in SetUp() after all skip checks complete.
      */
-    template<typename RefDataMaker>
-    explicit HardwareTestFixture(const RefDataMaker& refDataMaker) :
+    explicit HardwareTestFixture(const RefDataFilenameMaker<ParametersTuple>& refDataMaker) :
         refData_(refDataMaker(this->GetParam()))
     {
         hardwareContext_ = std::get<std::tuple_size_v<ParametersTuple> - 1>(this->GetParam());
