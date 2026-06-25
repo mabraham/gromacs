@@ -67,7 +67,7 @@
  *
  * 3. **Hardware Context** (automatic): CPU vs GPU execution
  *    - Distinct named GoogleTest on each piece of compatible hardware detected
- *    - Added via ::testing::Combine with getHardwareContextsWithCapability()
+ *    - Added via testing::Combine with getHardwareContextsWithCapability()
  *    - Skipped from reference data names (CPU and GPU share same expected results)
  *
  * \subsection decision_tree When to Use Execution Modes vs Input Configuration
@@ -273,7 +273,8 @@ class TestDevice;
 class TestReferenceData;
 class TestReferenceChecker;
 
-/*! \brief Hardware context for parameterized tests
+/*! \libinternal
+ * \brief Hardware context for parameterized tests
  *
  * Represents either CPU or GPU execution context. Encapsulates device
  * selection, activation, and context/stream access. Supports test
@@ -334,7 +335,8 @@ ArrayRef<const TestHardwareContext> getTestHardwareContexts();
 std::vector<const TestHardwareContext*> getHardwareContextsWithCapability(bool hardwareHasCapability);
 
 
-/*! \brief Helper for hardware-parameterized tests with input config and execution modes
+/*! \libinternal
+ * \brief Helper for hardware-parameterized tests with input config and execution modes
  *
  * Parameterizes tests across three layers:
  * - **Input configuration**: What to compute (affects reference data)
@@ -377,7 +379,7 @@ private:
      * \tparam Is         Index pack (0, 1, 2, ..., N-1) for tuple element access
      */
     template<typename Tuple, std::size_t... Is>
-    static auto makeEmptyStringTupleImpl(std::index_sequence<Is...>)
+    static auto makeEmptyStringTupleImpl(std::index_sequence<Is...> /*unused*/)
     {
         // For each index I, get the I-th type from Tuple and create toEmptyString<T>
         return std::make_tuple(toEmptyString<std::tuple_element_t<Is, Tuple>>...);
@@ -398,7 +400,8 @@ public:
                                     std::declval<ExecutionModes>(),
                                     std::declval<std::tuple<const TestHardwareContext*>>()));
 
-    /*! \brief Helper to create test namer and reference data maker
+    /*! \libinternal
+     * \brief Helper to create test namer and reference data maker
      *
      * Holds test-parameter formatter tuples so they can be reused to
      * make consistent test namer and reference data maker objects.
@@ -474,7 +477,8 @@ auto flattenTupleWithHardwareContext()
     };
 }
 
-/*! \libinternal \brief Base class for hardware-parameterized tests
+/*! \libinternal
+ * \brief Base class for hardware-parameterized tests
  *
  * Provides infrastructure for tests using HardwareAndExecutionTestHelper:
  * - Safe reference data and checker lifecycle management
@@ -501,7 +505,7 @@ protected:
     /*! \brief Constructor
      *
      * \note High-level hardware capability filtering should be done at test
-     *        instantiation via ::testing::Combine with getHardwareContextsWithCapability().
+     *        instantiation via testing::Combine with getHardwareContextsWithCapability().
      *       Custom parameter-dependent skip logic can be added via the virtual
      *       addCustomSkipReasons() hook, which runs in SetUp(). The reference data
      *       checker is created in SetUp() after all skip checks complete.
