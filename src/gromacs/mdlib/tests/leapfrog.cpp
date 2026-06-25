@@ -228,22 +228,24 @@ std::string formatTimestep(real timestep)
     return formatString("dt%d", timestepInt);
 }
 
-//! Maker for test namer and reference data maker
-LeapFrogTestHelper::NamerMaker sc_makeNamers{
-    std::make_tuple([](int n) { return formatString("%datoms", n); },
-                    formatTimestep,
-                    [](int n) { return formatString("%dsteps", n); },
-                    useString, // Velocity/force pair name
-                    [](int n) { return formatString("tcg%d", n); },
-                    [](int n) { return formatString("nstpc%d", n); }),
-    std::make_tuple() // No execution modes
-};
+//! Formatters for parameters in the config info
+static const auto sc_configInfoFormatters =
+        std::make_tuple([](int n) { return formatString("%datoms", n); },
+                        formatTimestep,
+                        [](int n) { return formatString("%dsteps", n); },
+                        useString, // Velocity/force pair name
+                        [](int n) { return formatString("tcg%d", n); },
+                        [](int n) { return formatString("nstpc%d", n); });
+//! Formatters for parameters in the execution mode (currently empty)
+static const auto sc_executionModeFormatters = std::make_tuple();
 
 //! Helper object to name tests using all parameters
-const NameOfTestFromTuple<LeapFrogTestHelper::DynamicParameters> sc_testNamer = sc_makeNamers.testNamer();
+static const NameOfTestFromTuple<LeapFrogTestHelper::DynamicParameters> sc_testNamer =
+        LeapFrogTestHelper::testNamer(sc_configInfoFormatters, sc_executionModeFormatters);
+
 //! Helper object to name reference-date files using only input-configuration parameters
-const RefDataFilenameMaker<LeapFrogTestHelper::DynamicParameters> sc_refDataFilenameMaker =
-        sc_makeNamers.refDataFilenameMaker();
+static const RefDataFilenameMaker<LeapFrogTestHelper::DynamicParameters> sc_refDataFilenameMaker =
+        LeapFrogTestHelper::refDataFilenameMaker(sc_configInfoFormatters);
 
 //! Named velocity/force combination
 struct VelocityForcePair

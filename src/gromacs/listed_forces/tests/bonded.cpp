@@ -156,28 +156,31 @@ auto formatFlavor = [](BondedKernelFlavor flavor)
 //! Formatter for FEP lambda parameter
 auto formatFepLambda = [](real lambda) { return formatString("Lambda%s", toString(lambda).c_str()); };
 
-/*! \brief Test namer and reference data maker with automatic execution mode skipping
+//! Formatters for parameters in the config info
+static const auto sc_configInfoFormatters =
+        std::make_tuple(formatIListInput, formatCoordinates, formatPbcType, formatFepLambda);
+//! Formatters for parameters in the execution mode
+static const auto sc_executionModeFormatters = std::make_tuple(formatFlavor);
+
+/*! \brief Helper object to name tests using all parameters
+ *
+ * Test names include hardware and flavor:
+ *   Bond/ListedForcesTest.Ifunc/BONDS_4atoms_no_Lambda0_ForcesAndVirialAndEnergy_GPU1
+ */
+static const NameOfTestFromTuple<ListedForcesTestHelper::DynamicParameters> sc_testNamer =
+        ListedForcesTestHelper::testNamer(sc_configInfoFormatters, sc_executionModeFormatters);
+
+/*! \brief Helper object to name reference-data files using only input-configuration parameters
  *
  * Reference data files are named like:
  *   Bond_ListedForcesTest_Ifunc_BONDS_4atoms_no_Lambda0.xml
- * Test names include hardware and flavor:
- *   Bond/ListedForcesTest.Ifunc/BONDS_4atoms_no_Lambda0_ForcesAndVirialAndEnergy_GPU1
  *
  * Note: BondedKernelFlavor is automatically skipped in reference data names because
  * it only controls what kinds of things are computed (forces only vs forces+virial+energy).
  * When the same quantity is computed by a different flavor, results should match.
  */
-ListedForcesTestHelper::NamerMaker sc_makeNamers{
-    std::make_tuple(formatIListInput, formatCoordinates, formatPbcType, formatFepLambda),
-    std::make_tuple(formatFlavor)
-};
-
-//! Helper object to name tests using all parameters
-const NameOfTestFromTuple<ListedForcesTestHelper::DynamicParameters> sc_testNamer =
-        sc_makeNamers.testNamer();
-//! Helper object to name reference-date files using only input-configuration parameters
-const RefDataFilenameMaker<ListedForcesTestHelper::DynamicParameters> sc_refDataFilenameMaker =
-        sc_makeNamers.refDataFilenameMaker();
+static const RefDataFilenameMaker<ListedForcesTestHelper::DynamicParameters> sc_refDataFilenameMaker =
+        ListedForcesTestHelper::refDataFilenameMaker(sc_configInfoFormatters);
 
 /*! \brief Test fixture for listed forces
  *
