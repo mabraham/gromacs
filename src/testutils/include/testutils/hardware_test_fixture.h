@@ -281,11 +281,9 @@ class TestReferenceChecker;
  * naming and tracing with string representations. See file-level
  * documentation for usage examples.
  */
-struct TestHardwareContext
+class TestHardwareContext
 {
-    //! Pointer to the test device (nullptr for CPU)
-    TestDevice* testDevice_ = nullptr;
-
+public:
     //! Constructor (nullptr for CPU context, valid pointer for GPU)
     explicit TestHardwareContext(TestDevice* testDevice = nullptr) : testDevice_(testDevice) {}
 
@@ -309,6 +307,10 @@ struct TestHardwareContext
 
     //! Activate the context (set the device for GPU)
     void activate() const;
+
+private:
+    //! Pointer to the test device (nullptr for CPU)
+    TestDevice* testDevice_ = nullptr;
 };
 
 /*! \brief Get available hardware contexts (CPU + detected GPUs)
