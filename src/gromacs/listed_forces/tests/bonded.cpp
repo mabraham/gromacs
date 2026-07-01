@@ -113,6 +113,165 @@ using ListedForcesExecutionModes = std::tuple<BondedKernelFlavor>;
 using ListedForcesTestHelper =
         HardwareAndExecutionTestHelper<ListedForcesInputConfig, ListedForcesExecutionModes>;
 
+void runBondedCpu(const iListInput&           input,
+                  const std::vector<t_iatom>& iatoms,
+                  const PaddedVector<RVec>&   x,
+                  const t_pbc*                pbc,
+                  real                        lambda,
+                  BondedKernelFlavor          flavor,
+                  OutputQuantities*           output)
+{
+    std::array<int, 4> ddgatindex = { 0, 1, 2, 3 };
+
+    output->energy = calculateSimpleBond(input.ftype.value(),
+                                         iatoms.size(),
+                                         iatoms.data(),
+                                         &input.iparams,
+                                         as_rvec_array(x.data()),
+                                         output->f,
+                                         output->fshift,
+                                         pbc,
+                                         lambda,
+                                         &output->dvdlambda,
+                                         c_bondedTestCharges,
+                                         nullptr,
+                                         nullptr,
+                                         nullptr,
+                                         ddgatindex.data(),
+                                         flavor);
+}
+
+#if GMX_GPU && !GMX_GPU_OPENCL
+
+void runBondedGpu(const DeviceContext&        deviceContext,
+                  const DeviceStream&         deviceStream,
+                  const iListInput&           input,
+                  const std::vector<t_iatom>& iatoms,
+                  const PaddedVector<RVec>&   x,
+                  const t_pbc&                pbc,
+                  BondedKernelFlavor          flavor,
+                  OutputQuantities*           output)
+{
+    GMX_RELEASE_ASSERT(flavor == BondedKernelFlavor::ForcesAndVirialAndEnergy,
+                       "GPU runner only supports ForcesAndVirialAndEnergy flavor");
+
+    deviceContext.activate();
+
+    const int  ftype    = static_cast<int>(input.ftype.value());
+    const int  numAtoms = c_numAtomsBondedTest;
+    const real scaleFac = 1.0f;
+
+    // Build minimal force-field parameters (single type)
+    gmx_ffparams_t ffparams;
+    ffparams.functype = { input.ftype.value() };
+    ffparams.iparams  = { input.iparams };
+
+    // Build minimal interaction definitions
+    InteractionDefinitions idef(ffparams);
+    idef.il[ftype].iatoms                   = iatoms;
+    idef.ilsort                             = ilsortNO_FE;
+    idef.numNonperturbedInteractions[ftype] = static_cast<int>(iatoms.size());
+
+    // Identity atom order (same as input coordinates)
+    std::vector<int> nbnxmAtomOrder(numAtoms);
+    for (int i = 0; i < numAtoms; i++)
+    {
+        nbnxmAtomOrder[i] = i;
+    }
+
+    // Host-side xq (x, y, z, q) for upload
+    std::vector<real> h_xq;
+    h_xq.reserve(numAtoms * 4);
+    for (int i = 0; i < numAtoms; i++)
+    {
+        h_xq.emplace_back(x[i][XX]);
+        h_xq.emplace_back(x[i][YY]);
+        h_xq.emplace_back(x[i][ZZ]);
+        h_xq.emplace_back(c_bondedTestCharges[i]);
+    }
+
+    // Allocate device buffers for NBAtomDataGpu (only xq, f, fShift used by bonded)
+    NBAtomDataGpu nbAtomDataGpu = {};
+    nbAtomDataGpu.numAtoms      = numAtoms;
+    nbAtomDataGpu.numAtomsLocal = numAtoms;
+    nbAtomDataGpu.numAtomsAlloc = numAtoms;
+
+    allocateDeviceBuffer(&nbAtomDataGpu.xq, numAtoms, deviceContext);
+    allocateDeviceBuffer(&nbAtomDataGpu.f, numAtoms, deviceContext);
+    allocateDeviceBuffer(&nbAtomDataGpu.fShift, c_numShiftVectors, deviceContext);
+
+    copyToDeviceBuffer(&nbAtomDataGpu.xq,
+                       reinterpret_cast<Float4*>(h_xq.data()),
+                       0,
+                       numAtoms,
+                       deviceStream,
+                       GpuApiCallBehavior::Sync,
+                       nullptr);
+    clearDeviceBufferAsync(&nbAtomDataGpu.f, 0, numAtoms, deviceStream);
+    clearDeviceBufferAsync(&nbAtomDataGpu.fShift, 0, c_numShiftVectors, deviceStream);
+
+    // ListedForcesGpu (wallcycle can be nullptr – start/stop check for null)
+    ListedForcesGpu listedForcesGpu(ffparams, scaleFac, 1, deviceContext, deviceStream, nullptr);
+
+    listedForcesGpu.updateHaveInteractions(idef);
+    listedForcesGpu.updateInteractionListsAndDeviceBuffers(nbnxmAtomOrder, idef, &nbAtomDataGpu);
+
+    if (!listedForcesGpu.haveInteractions())
+    {
+        freeDeviceBuffer(&nbAtomDataGpu.xq);
+        freeDeviceBuffer(&nbAtomDataGpu.f);
+        freeDeviceBuffer(&nbAtomDataGpu.fShift);
+        GMX_THROW(InternalError(formatString("ListedForcesGpu reported no interactions for type %d", ftype)));
+    }
+
+    listedForcesGpu.setPbc(pbc.pbcType, pbc.box, false);
+
+    StepWorkload stepWork;
+    stepWork.computeVirial = true;
+    stepWork.computeEnergy = true;
+    listedForcesGpu.launchKernel(stepWork);
+    listedForcesGpu.launchEnergyTransfer();
+
+    gmx_enerdata_t enerd(1, nullptr);
+    listedForcesGpu.waitAccumulateEnergyTerms(&enerd);
+
+    // Copy forces and shift forces back
+    std::vector<Float3> h_f(numAtoms);
+    std::vector<Float3> h_fShift(c_numShiftVectors);
+    copyFromDeviceBuffer(
+            h_f.data(), &nbAtomDataGpu.f, 0, numAtoms, deviceStream, GpuApiCallBehavior::Sync, nullptr);
+    copyFromDeviceBuffer(h_fShift.data(),
+                         &nbAtomDataGpu.fShift,
+                         0,
+                         c_numShiftVectors,
+                         deviceStream,
+                         GpuApiCallBehavior::Sync,
+                         nullptr);
+
+    // Fill test output (Float3 is RVec on HIP, uses [0],[1],[2])
+    output->energy    = enerd.term[ftype];
+    output->dvdlambda = 0.0;
+    for (int i = 0; i < numAtoms; i++)
+    {
+        output->f[i][XX] = h_f[i][XX];
+        output->f[i][YY] = h_f[i][YY];
+        output->f[i][ZZ] = h_f[i][ZZ];
+        output->f[i][3]  = 0.0;
+    }
+    for (int s = 0; s < c_numShiftVectors; s++)
+    {
+        output->fshift[s][XX] = h_fShift[s][XX];
+        output->fshift[s][YY] = h_fShift[s][YY];
+        output->fshift[s][ZZ] = h_fShift[s][ZZ];
+    }
+
+    freeDeviceBuffer(&nbAtomDataGpu.xq);
+    freeDeviceBuffer(&nbAtomDataGpu.f);
+    freeDeviceBuffer(&nbAtomDataGpu.fShift);
+}
+
+#endif // GMX_GPU && !GMX_GPU_OPENCL
+
 //! Formatter for iListInput - use function type and FEP status
 // NOLINTNEXTLINE(cppcoreguidelines-interfaces-global-init)
 auto formatIListInput = [](const iListInput& input)
@@ -243,156 +402,22 @@ protected:
         if (isGpuTest())
         {
 #if GMX_GPU && !GMX_GPU_OPENCL
-            GMX_RELEASE_ASSERT(flavor_ == BondedKernelFlavor::ForcesAndVirialAndEnergy,
-                               "GPU runner only supports ForcesAndVirialAndEnergy flavor");
-
-            const int  ftype    = static_cast<int>(input_.ftype.value());
-            const int  numAtoms = c_numAtomsBondedTest;
-            const real scaleFac = 1.0f;
-
-            // Build minimal force-field parameters (single type)
-            gmx_ffparams_t ffparams;
-            ffparams.functype = { input_.ftype.value() };
-            ffparams.iparams  = { input_.iparams };
-
-            // Build minimal interaction definitions
-            InteractionDefinitions idef(ffparams);
-            idef.il[ftype].iatoms                   = iatoms;
-            idef.ilsort                             = ilsortNO_FE;
-            idef.numNonperturbedInteractions[ftype] = static_cast<int>(iatoms.size());
-
-            // Identity atom order (same as input coordinates)
-            std::vector<int> nbnxmAtomOrder(numAtoms);
-            for (int i = 0; i < numAtoms; i++)
-            {
-                nbnxmAtomOrder[i] = i;
-            }
-
-            // Host-side xq (x, y, z, q) for upload
-            std::vector<real> h_xq;
-            h_xq.reserve(numAtoms * 4);
-            for (int i = 0; i < numAtoms; i++)
-            {
-                h_xq.emplace_back(x_[i][XX]);
-                h_xq.emplace_back(x_[i][YY]);
-                h_xq.emplace_back(x_[i][ZZ]);
-                h_xq.emplace_back(c_bondedTestCharges[i]);
-            }
-
-            // Allocate device buffers for NBAtomDataGpu (only xq, f, fShift used by bonded)
-            NBAtomDataGpu nbAtomDataGpu = {};
-            nbAtomDataGpu.numAtoms      = numAtoms;
-            nbAtomDataGpu.numAtomsLocal = numAtoms;
-            nbAtomDataGpu.numAtomsAlloc = numAtoms;
-
-            allocateDeviceBuffer(&nbAtomDataGpu.xq, numAtoms, *hardwareContext()->deviceContext());
-            allocateDeviceBuffer(&nbAtomDataGpu.f, numAtoms, *hardwareContext()->deviceContext());
-            allocateDeviceBuffer(
-                    &nbAtomDataGpu.fShift, c_numShiftVectors, *hardwareContext()->deviceContext());
-
-            copyToDeviceBuffer(&nbAtomDataGpu.xq,
-                               reinterpret_cast<Float4*>(h_xq.data()),
-                               0,
-                               numAtoms,
-                               *hardwareContext()->deviceStream(),
-                               GpuApiCallBehavior::Sync,
-                               nullptr);
-            clearDeviceBufferAsync(&nbAtomDataGpu.f, 0, numAtoms, *hardwareContext()->deviceStream());
-            clearDeviceBufferAsync(
-                    &nbAtomDataGpu.fShift, 0, c_numShiftVectors, *hardwareContext()->deviceStream());
-
-            // ListedForcesGpu (wallcycle can be nullptr – start/stop check for null)
-            ListedForcesGpu listedForcesGpu(ffparams,
-                                            scaleFac,
-                                            1,
-                                            *hardwareContext()->deviceContext(),
-                                            *hardwareContext()->deviceStream(),
-                                            nullptr);
-
-            listedForcesGpu.updateHaveInteractions(idef);
-            listedForcesGpu.updateInteractionListsAndDeviceBuffers(nbnxmAtomOrder, idef, &nbAtomDataGpu);
-
-            if (!listedForcesGpu.haveInteractions())
-            {
-                freeDeviceBuffer(&nbAtomDataGpu.xq);
-                freeDeviceBuffer(&nbAtomDataGpu.f);
-                freeDeviceBuffer(&nbAtomDataGpu.fShift);
-                FAIL() << "ListedForcesGpu reported no interactions for type " << ftype;
-            }
-
-            listedForcesGpu.setPbc(pbc_.pbcType, pbc_.box, false);
-
-            StepWorkload stepWork;
-            stepWork.computeVirial = true;
-            stepWork.computeEnergy = true;
-            listedForcesGpu.launchKernel(stepWork);
-            listedForcesGpu.launchEnergyTransfer();
-
-            gmx_enerdata_t enerd(1, nullptr);
-            listedForcesGpu.waitAccumulateEnergyTerms(&enerd);
-
-            // Copy forces and shift forces back
-            std::vector<Float3> h_f(numAtoms);
-            std::vector<Float3> h_fShift(c_numShiftVectors);
-            copyFromDeviceBuffer(h_f.data(),
-                                 &nbAtomDataGpu.f,
-                                 0,
-                                 numAtoms,
-                                 *hardwareContext()->deviceStream(),
-                                 GpuApiCallBehavior::Sync,
-                                 nullptr);
-            copyFromDeviceBuffer(h_fShift.data(),
-                                 &nbAtomDataGpu.fShift,
-                                 0,
-                                 c_numShiftVectors,
-                                 *hardwareContext()->deviceStream(),
-                                 GpuApiCallBehavior::Sync,
-                                 nullptr);
-
-            // Fill test output (Float3 is RVec on HIP, uses [0],[1],[2])
-            output.energy    = enerd.term[ftype];
-            output.dvdlambda = 0.0;
-            for (int i = 0; i < numAtoms; i++)
-            {
-                output.f[i][XX] = h_f[i][XX];
-                output.f[i][YY] = h_f[i][YY];
-                output.f[i][ZZ] = h_f[i][ZZ];
-                output.f[i][3]  = 0.0;
-            }
-            for (int s = 0; s < c_numShiftVectors; s++)
-            {
-                output.fshift[s][XX] = h_fShift[s][XX];
-                output.fshift[s][YY] = h_fShift[s][YY];
-                output.fshift[s][ZZ] = h_fShift[s][ZZ];
-            }
-
-            freeDeviceBuffer(&nbAtomDataGpu.xq);
-            freeDeviceBuffer(&nbAtomDataGpu.f);
-            freeDeviceBuffer(&nbAtomDataGpu.fShift);
-#else  // GMX_GPU && !GMX_GPU_OPENCL
+            activateHardware();
+            runBondedGpu(*hardwareContext()->deviceContext(),
+                         *hardwareContext()->deviceStream(),
+                         input_,
+                         iatoms,
+                         x_,
+                         pbc_,
+                         flavor_,
+                         &output);
+#else
             GMX_THROW(gmx::InternalError("GPU hardware context with no test code"));
-#endif // GMX_GPU && !GMX_GPU_OPENCL
+#endif
         }
         else
         {
-            std::vector<int> ddgatindex = { 0, 1, 2, 3 };
-
-            output.energy = calculateSimpleBond(input_.ftype.value(),
-                                                iatoms.size(),
-                                                iatoms.data(),
-                                                &input_.iparams,
-                                                as_rvec_array(x_.data()),
-                                                output.f,
-                                                output.fshift,
-                                                &pbc_,
-                                                lambda_,
-                                                &output.dvdlambda,
-                                                c_bondedTestCharges,
-                                                nullptr,
-                                                nullptr,
-                                                nullptr,
-                                                ddgatindex.data(),
-                                                flavor_);
+            runBondedCpu(input_, iatoms, x_, &pbc_, lambda_, flavor_, &output);
         }
 
         // Now check the output
