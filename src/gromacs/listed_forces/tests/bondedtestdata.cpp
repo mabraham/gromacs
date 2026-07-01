@@ -69,54 +69,48 @@ bool iListInput::hasFepParameters() const
 
     const InteractionFunction ft = ftype.value();
 
-    // Check each interaction type that supports FEP
-    if (ft == InteractionFunction::Bonds || ft == InteractionFunction::GROMOS96Bonds
-        || ft == InteractionFunction::Angles || ft == InteractionFunction::GROMOS96Angles
-        || ft == InteractionFunction::ImproperDihedrals
-        || ft == InteractionFunction::RestrictedBendingPotential)
+    switch (ft)
     {
-        return (iparams.harmonic.rA != iparams.harmonic.rB
-                || iparams.harmonic.krA != iparams.harmonic.krB);
-    }
+        case InteractionFunction::Bonds:
+        case InteractionFunction::GROMOS96Bonds:
+        case InteractionFunction::Angles:
+        case InteractionFunction::GROMOS96Angles:
+        case InteractionFunction::ImproperDihedrals:
+        case InteractionFunction::RestrictedBendingPotential:
+            return (iparams.harmonic.rA != iparams.harmonic.rB
+                    || iparams.harmonic.krA != iparams.harmonic.krB);
 
-    if (ft == InteractionFunction::MorsePotential)
-    {
-        return (iparams.morse.b0A != iparams.morse.b0B || iparams.morse.cbA != iparams.morse.cbB
-                || iparams.morse.betaA != iparams.morse.betaB);
-    }
+        case InteractionFunction::MorsePotential:
+            return (iparams.morse.b0A != iparams.morse.b0B || iparams.morse.cbA != iparams.morse.cbB
+                    || iparams.morse.betaA != iparams.morse.betaB);
 
-    if (ft == InteractionFunction::LinearAngles)
-    {
-        return (iparams.linangle.klinA != iparams.linangle.klinB
-                || iparams.linangle.aA != iparams.linangle.aB);
-    }
+        case InteractionFunction::LinearAngles:
+            return (iparams.linangle.klinA != iparams.linangle.klinB
+                    || iparams.linangle.aA != iparams.linangle.aB);
 
-    if (ft == InteractionFunction::UreyBradleyPotential)
-    {
-        return (iparams.u_b.thetaA != iparams.u_b.thetaB || iparams.u_b.kthetaA != iparams.u_b.kthetaB
-                || iparams.u_b.r13A != iparams.u_b.r13B || iparams.u_b.kUBA != iparams.u_b.kUBB);
-    }
+        case InteractionFunction::UreyBradleyPotential:
+            return (iparams.u_b.thetaA != iparams.u_b.thetaB || iparams.u_b.kthetaA != iparams.u_b.kthetaB
+                    || iparams.u_b.r13A != iparams.u_b.r13B || iparams.u_b.kUBA != iparams.u_b.kUBB);
 
-    if (ft == InteractionFunction::ProperDihedrals || ft == InteractionFunction::AngleRestraints
-        || ft == InteractionFunction::AngleZAxisRestraints)
-    {
-        return (iparams.pdihs.phiA != iparams.pdihs.phiB || iparams.pdihs.cpA != iparams.pdihs.cpB);
-    }
+        case InteractionFunction::ProperDihedrals:
+        case InteractionFunction::AngleRestraints:
+        case InteractionFunction::AngleZAxisRestraints:
+            return (iparams.pdihs.phiA != iparams.pdihs.phiB || iparams.pdihs.cpA != iparams.pdihs.cpB);
 
-    if (ft == InteractionFunction::RyckaertBellemansDihedrals)
-    {
-        for (int i = 0; i < NR_RBDIHS; i++)
-        {
-            if (iparams.rbdihs.rbcA[i] != iparams.rbdihs.rbcB[i])
+        case InteractionFunction::RyckaertBellemansDihedrals:
+            for (int i = 0; i < NR_RBDIHS; i++)
             {
-                return true;
+                if (iparams.rbdihs.rbcA[i] != iparams.rbdihs.rbcB[i])
+                {
+                    return true;
+                }
             }
-        }
-        return false;
-    }
+            return false;
 
-    // All other types don't support FEP
-    return false;
+        default:
+            // All other types don't support FEP
+            return false;
+    }
 }
 
 // iListInput setter implementations
