@@ -329,21 +329,11 @@ static const auto sc_executionModeFormatters = std::make_tuple(formatFlavor);
 static const NameOfTestFromTuple<ListedForcesTestHelper::DynamicParameters> sc_testNamer =
         ListedForcesTestHelper::testNamer(sc_configInfoFormatters, sc_executionModeFormatters);
 
-/*! \brief Helper object to name reference-data files using only input-configuration parameters
- *
- * Reference data files are named like:
- *   Bond_ListedForcesTest_Ifunc_BONDS_4atoms_no_Lambda0.xml
- *
- * Note: BondedKernelFlavor is automatically skipped in reference data names because
- * it only controls what kinds of things are computed (forces only vs forces+virial+energy).
- * When the same quantity is computed by a different flavor, results should match.
- */
-static const RefDataFilenameMaker<ListedForcesTestHelper::DynamicParameters> sc_refDataFilenameMaker =
-        ListedForcesTestHelper::refDataFilenameMaker(sc_configInfoFormatters);
-
 /*! \brief Test fixture for listed forces
  *
- * Uses hardware-independent reference-data naming via RefDataFilenameMaker.
+ * Uses hardware-independent reference-data naming. The fixture automatically
+ * creates the RefDataFilenameMaker from sc_configInfoFormatters, so test code
+ * doesn't need to manually construct it.
  */
 class ListedForcesTest : public HardwareTestFixture<ListedForcesTestHelper>
 {
@@ -358,7 +348,7 @@ protected:
     FloatingPointTolerance shiftForcesTolerance_ = defaultRealTolerance();
 
     ListedForcesTest() :
-        HardwareTestFixture(sc_refDataFilenameMaker),
+        HardwareTestFixture(sc_configInfoFormatters),
         input_(std::get<0>(GetParam())),
         x_(std::get<1>(GetParam())),
         pbcType_(std::get<2>(GetParam())),

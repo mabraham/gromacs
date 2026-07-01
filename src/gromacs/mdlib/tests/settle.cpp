@@ -317,10 +317,6 @@ static const auto sc_executionModeFormatters = std::make_tuple();
 static const NameOfTestFromTuple<SettleTestHelper::DynamicParameters> sc_testNamer =
         SettleTestHelper::testNamer(sc_configInfoFormatters, sc_executionModeFormatters);
 
-//! Helper object to name reference-date files using only input-configuration parameters
-static const RefDataFilenameMaker<SettleTestHelper::DynamicParameters> sc_refDataFilenameMaker =
-        SettleTestHelper::refDataFilenameMaker(sc_configInfoFormatters);
-
 /*! \brief Sets of parameters on which to run the tests.
  *
  * Each entry is a tuple of (numSettles, updateVelocities, calcVirial, pbcType).
@@ -346,7 +342,7 @@ const std::array<SettleInputConfig, 13> sc_settleConfigs = { {
 class SettleTest : public HardwareTestFixture<SettleTestHelper>
 {
 public:
-    SettleTest() : HardwareTestFixture(sc_refDataFilenameMaker) {}
+    SettleTest() : HardwareTestFixture(sc_configInfoFormatters) {}
 
     /*! \brief Check if the final interatomic distances are equal to target set by constraints.
      *

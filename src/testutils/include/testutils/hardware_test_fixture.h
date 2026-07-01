@@ -123,27 +123,30 @@
  * using BondedExecutionModes = std::tuple<BondedKernelFlavor, bool>;
  * using BondedTestHelper = HardwareAndExecutionTestHelper<BondedInputConfig, BondedExecutionModes>;
  *
- * // Step 5: Create formatters for test/reference names from parameter values
- * const auto [sc_testNamer, sc_refDataFilenameMaker] = BondedTestHelper::makeNamers(
- *     // Formatters for configuration parameters
- *     std::make_tuple(
- *         [](int n) { return formatString("_%dAtoms", n); },
- *         [](PbcType pbc) { return formatString("_%s", c_pbcTypeNames[pbc].c_str()); }),
- *     // Formatters for execution modes - only affects test names
- *     std::make_tuple(
- *         [](BondedKernelFlavor f) {
- *             return f == BondedKernelFlavor::ForcesOnly ? "_ForcesOnly" : "_All";
- *         },
- *         [](bool simd) { return simd ? "_SIMD" : ""; }));
+ * // Step 5: Create formatters for input config and execution modes
+ * static const auto sc_configFormatters = std::make_tuple(
+ *     [](int n) { return formatString("_%dAtoms", n); },
+ *     [](PbcType pbc) { return formatString("_%s", c_pbcTypeNames[pbc].c_str()); });
  *
- * // Step 6: Define test fixture perhaps with custom skip logic
+ * static const auto sc_executionFormatters = std::make_tuple(
+ *     [](BondedKernelFlavor f) {
+ *         return f == BondedKernelFlavor::ForcesOnly ? "_ForcesOnly" : "_All";
+ *     },
+ *     [](bool simd) { return simd ? "_SIMD" : ""; });
+ *
+ * // Step 6: Create test namer (used at instantiation)
+ * static const auto sc_testNamer =
+ *     BondedTestHelper::testNamer(sc_configFormatters, sc_executionFormatters);
+ *
+ * // Step 7: Define test fixture with custom skip logic
  * class BondedTest : public HardwareTestFixture<BondedTestHelper>
  * {
  * protected:
  *     BondedKernelFlavor flavor_;
  *     bool useSIMD_;
  *
- *     BondedTest() : HardwareTestFixture(sc_refDataFilenameMaker)
+ *     // Pass config formatters directly - RefDataFilenameMaker created automatically
+ *     BondedTest() : HardwareTestFixture(sc_configFormatters)
  *     {
  *         // Extract execution modes from parameters
  *         auto [_, numAtoms, pbcType, flavor, useSIMD, __] = GetParam();
@@ -166,7 +169,7 @@
  *     }
  * };
  *
- * // Step 7: Write test body
+ * // Step 8: Write test body
  * TEST_P(BondedTest, Works)
  * {
  *     auto [_, numAtoms, pbcType, flavor, useSIMD, __] = GetParam();
@@ -402,9 +405,14 @@ public:
                                     std::declval<ExecutionModes>(),
                                     std::declval<std::tuple<const TestHardwareContext*>>()));
 
+    //! Type for input configuration formatters tuple
+    using InputConfigFormatters = typename detail::ParamsToFormatterVariants<InputConfig>::type;
+
+    //! Type for execution mode formatters tuple
+    using ExecutionModeFormatters = typename detail::ParamsToFormatterVariants<ExecutionModes>::type;
+
     //! Create test namer, using all parameters
-    static auto testNamer(typename detail::ParamsToFormatterVariants<InputConfig>::type inputFormatters,
-                          typename detail::ParamsToFormatterVariants<ExecutionModes>::type executionFormatters)
+    static auto testNamer(InputConfigFormatters inputFormatters, ExecutionModeFormatters executionFormatters)
     {
         return NameOfTestFromTuple<DynamicParameters>{ std::tuple_cat(
                 inputFormatters,
@@ -412,7 +420,7 @@ public:
                 std::make_tuple([](const TestHardwareContext* ctx) { return ctx->testName(); })) };
     }
     //! Create reference data filename maker, using only input-config paramters
-    static auto refDataFilenameMaker(typename detail::ParamsToFormatterVariants<InputConfig>::type inputFormatters)
+    static auto refDataFilenameMaker(InputConfigFormatters inputFormatters)
     {
         auto executionModeSkippers = makeEmptyStringTuple<ExecutionModes>();
         return RefDataFilenameMaker<DynamicParameters>{ std::tuple_cat(
@@ -470,14 +478,19 @@ public:
 protected:
     /*! \brief Constructor
      *
+     * Takes input config formatters and automatically creates the RefDataFilenameMaker
+     * internally. See file-level documentation for complete usage examples.
+     *
+     * \param[in] inputFormatters  Tuple of formatter functions for input config parameters
+     *
      * \note High-level hardware capability filtering should be done at test
      *        instantiation via testing::Combine with getHardwareContextsWithCapability().
      *       Custom parameter-dependent skip logic can be added via the virtual
      *       addCustomSkipReasons() hook, which runs in SetUp(). The reference data
      *       checker is created in SetUp() after all skip checks complete.
      */
-    explicit HardwareTestFixture(const RefDataFilenameMaker<ParametersTuple>& refDataMaker) :
-        refData_(refDataMaker(this->GetParam()))
+    explicit HardwareTestFixture(typename TestHelper::InputConfigFormatters inputFormatters) :
+        refData_(TestHelper::refDataFilenameMaker(inputFormatters)(this->GetParam()))
     {
         hardwareContext_ = std::get<std::tuple_size_v<ParametersTuple> - 1>(this->GetParam());
     }

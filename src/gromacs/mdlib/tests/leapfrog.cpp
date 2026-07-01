@@ -243,10 +243,6 @@ static const auto sc_executionModeFormatters = std::make_tuple();
 static const NameOfTestFromTuple<LeapFrogTestHelper::DynamicParameters> sc_testNamer =
         LeapFrogTestHelper::testNamer(sc_configInfoFormatters, sc_executionModeFormatters);
 
-//! Helper object to name reference-date files using only input-configuration parameters
-static const RefDataFilenameMaker<LeapFrogTestHelper::DynamicParameters> sc_refDataFilenameMaker =
-        LeapFrogTestHelper::refDataFilenameMaker(sc_configInfoFormatters);
-
 //! Named velocity/force combination
 struct VelocityForcePair
 {
@@ -305,7 +301,7 @@ const std::array<LeapFrogInputConfig, 16> sc_leapFrogConfigs = { {
 class LeapFrogTest : public HardwareTestFixture<LeapFrogTestHelper>
 {
 protected:
-    LeapFrogTest() : HardwareTestFixture(sc_refDataFilenameMaker) {}
+    LeapFrogTest() : HardwareTestFixture(sc_configInfoFormatters) {}
 
 public:
     /*! \brief Test the numerical integrator against analytical solution for simple constant force case.

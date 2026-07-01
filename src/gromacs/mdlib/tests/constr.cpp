@@ -593,10 +593,6 @@ static const auto sc_executionModeFormatters = std::make_tuple();
 static const NameOfTestFromTuple<ConstraintsTestHelper::DynamicParameters> sc_testNamer =
         ConstraintsTestHelper::testNamer(sc_configInfoFormatters, sc_executionModeFormatters);
 
-//! Helper object to name reference-date files using only input-configuration parameters
-static const RefDataFilenameMaker<ConstraintsTestHelper::DynamicParameters> sc_refDataFilenameMaker =
-        ConstraintsTestHelper::refDataFilenameMaker(sc_configInfoFormatters);
-
 //! Helper class for checking constraints against reference data
 class ConstraintsVerifier
 {
@@ -881,7 +877,7 @@ private:
 class ConstraintsTest : public HardwareTestFixture<ConstraintsTestHelper>
 {
 protected:
-    ConstraintsTest() : HardwareTestFixture(sc_refDataFilenameMaker) {}
+    ConstraintsTest() : HardwareTestFixture(sc_configInfoFormatters) {}
 };
 
 TEST_P(ConstraintsTest, SatisfiesConstraints)
