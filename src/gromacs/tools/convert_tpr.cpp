@@ -177,43 +177,92 @@ static void reduce_rvec(int gnx, const int index[], rvec vv[])
     sfree(ptr);
 }
 
-static void reduce_atom(int gnx, const int index[], t_atom atom[], char*** atomname, int* nres, t_resinfo* resinfo)
+/*! \brief
+ * Subsets the global atoms topology structure down to the selected atom indices.
+ *
+ * In addition to reducing the core atom records and their residue indexing, this
+ * helper ensures that optional fields like atom types (atomtype/atomtypeB) are
+ * also reduced to avoid out-of-bounds mismatches in the subsetted TPR.
+ *
+ * \param[in]     gnx   Number of atoms in the index group.
+ * \param[in]     index Array of selected atom indices.
+ * \param[in,out] atoms Atoms structure to reduce.
+ */
+static void reduce_atoms(int gnx, const int index[], t_atoms* atoms)
 {
-    t_atom*    ptr;
-    char***    aname;
-    t_resinfo* rinfo;
-    int        i, nr;
+    std::vector<t_atom> ptr(gnx);
+    std::vector<char**> aname;
+    std::vector<char**> atype;
+    std::vector<char**> atypeB;
 
-    snew(ptr, gnx);
-    snew(aname, gnx);
-    snew(rinfo, atom[index[gnx - 1]].resind + 1);
-    for (i = 0; (i < gnx); i++)
+    if (atoms->atomname != nullptr)
     {
-        ptr[i]   = atom[index[i]];
-        aname[i] = atomname[index[i]];
+        aname.resize(gnx);
     }
-    nr = -1;
-    for (i = 0; (i < gnx); i++)
+    if (atoms->atomtype != nullptr)
     {
-        atom[i]     = ptr[i];
-        atomname[i] = aname[i];
-        if ((i == 0) || (atom[i].resind != atom[i - 1].resind))
+        atype.resize(gnx);
+    }
+    if (atoms->atomtypeB != nullptr)
+    {
+        atypeB.resize(gnx);
+    }
+
+    std::vector<t_resinfo> rinfo(gnx);
+
+    int nr         = -1;
+    int lastResind = -1;
+    for (int i = 0; (i < gnx); i++)
+    {
+        ptr[i] = atoms->atom[index[i]];
+        if (atoms->atomname != nullptr)
+        {
+            aname[i] = atoms->atomname[index[i]];
+        }
+        if (atoms->atomtype != nullptr)
+        {
+            atype[i] = atoms->atomtype[index[i]];
+        }
+        if (atoms->atomtypeB != nullptr)
+        {
+            atypeB[i] = atoms->atomtypeB[index[i]];
+        }
+        if ((i == 0) || (ptr[i].resind != lastResind))
         {
             nr++;
-            rinfo[nr] = resinfo[atom[i].resind];
+            rinfo[nr]  = atoms->resinfo[ptr[i].resind];
+            lastResind = ptr[i].resind;
         }
-        atom[i].resind = nr;
+        ptr[i].resind = nr;
+    }
+
+    for (int i = 0; (i < gnx); i++)
+    {
+        atoms->atom[i] = ptr[i];
+        if (atoms->atomname != nullptr)
+        {
+            atoms->atomname[i] = aname[i];
+        }
+        if (atoms->atomtype != nullptr)
+        {
+            atoms->atomtype[i] = atype[i];
+        }
+        if (atoms->atomtypeB != nullptr)
+        {
+            atoms->atomtypeB[i] = atypeB[i];
+        }
     }
     nr++;
-    for (i = 0; (i < nr); i++)
+    if (nr > atoms->nres)
     {
-        resinfo[i] = rinfo[i];
+        srenew(atoms->resinfo, nr);
     }
-    *nres = nr;
-
-    sfree(aname);
-    sfree(ptr);
-    sfree(rinfo);
+    for (int i = 0; (i < nr); i++)
+    {
+        atoms->resinfo[i] = rinfo[i];
+    }
+    atoms->nres = nr;
+    atoms->nr   = gnx;
 }
 
 static void reduce_ilist(gmx::ArrayRef<const int> invindex,
@@ -266,7 +315,7 @@ static void reduce_topology_x(int gnx, int index[], gmx_mtop_t* mtop, t_state* s
     {
         reduce_rvec(gnx, index, state->v.rvec_array());
     }
-    reduce_atom(gnx, index, atoms.atom, atoms.atomname, &(atoms.nres), atoms.resinfo);
+    reduce_atoms(gnx, index, &atoms);
 
     for (const auto i : gmx::EnumerationWrapper<InteractionFunction>{})
     {

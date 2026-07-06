@@ -140,6 +140,16 @@ with ``-vsite hydrogens``, but the check for such virtual sites never
 found any, so the note was always given. This has been present in
 versions 2019.0 to 2026.4.
 
+Fix subsetting of atom types and residue indices in convert-tpr
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+When using ``gmx convert-tpr`` with an index file to subset atoms, optional
+properties such as atom types were not subsetted, leaving the original
+properties for the first atoms. In addition, residue indices were not
+remapped correctly across residue boundaries. Both issues have been fixed.
+
+:issue:`5655`
+
 Fixes that affect portability
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
