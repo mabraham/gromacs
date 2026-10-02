@@ -78,6 +78,7 @@ public:
      *
      * \note blocksize has to be >= 1
      */
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static) false positive!
     void appendBlock(int blockSize)
     {
         GMX_ASSERT(blockSize > 0, "block sizes should be >= 1");

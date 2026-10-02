@@ -74,11 +74,13 @@ class OptionSectionImpl;
  */
 class AbstractOptionSection
 {
+public:
+    virtual ~AbstractOptionSection() {}
+
 protected:
     //! \cond libapi
     //! Initializes option properties with the given name.
     explicit AbstractOptionSection(const char* name) : name_(name) {}
-    virtual ~AbstractOptionSection() {}
     /*! \brief
      * Creates a storage object corresponding to this section.
      *

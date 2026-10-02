@@ -216,9 +216,9 @@ protected:
     //! Returns true if the given flag is set.
     bool hasFlag(OptionFlag flag) const { return flags_.test(flag); }
     //! Sets the given flag.
-    void setFlag(OptionFlag flag) { return flags_.set(flag); }
+    void setFlag(OptionFlag flag) { flags_.set(flag); }
     //! Clears the given flag.
-    void clearFlag(OptionFlag flag) { return flags_.clear(flag); }
+    void clearFlag(OptionFlag flag) { flags_.clear(flag); }
 
     /*! \brief
      * Sets a new minimum number of values required in one set.

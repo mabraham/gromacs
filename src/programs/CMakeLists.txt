@@ -41,6 +41,7 @@ target_include_directories(mdrun_objlib SYSTEM BEFORE PRIVATE ${PROJECT_SOURCE_D
 target_include_directories(mdrun_objlib SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/src/external)
 target_link_libraries(mdrun_objlib PRIVATE
         common
+        external_scope_guard
         hardware
         legacy_api
         legacy_modules

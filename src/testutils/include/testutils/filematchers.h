@@ -111,7 +111,6 @@ public:
     //! Factory method that constructs the matcher after parameters are set.
     virtual FileMatcherPointer createFileMatcher() const = 0;
 
-protected:
     virtual ~IFileMatcherSettings();
 };
 

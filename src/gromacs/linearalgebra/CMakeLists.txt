@@ -59,7 +59,7 @@ if (BUILD_SHARED_LIBS)
     set_target_properties(linearalgebra PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
-target_include_directories(linearalgebra PUBLIC
+target_include_directories(linearalgebra SYSTEM PUBLIC
                            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_include_directories(linearalgebra PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 if (GMX_EXTERNAL_BLAS AND GMX_EXTERNAL_LAPACK AND GMX_FFT_MKL)

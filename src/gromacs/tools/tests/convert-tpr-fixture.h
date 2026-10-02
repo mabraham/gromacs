@@ -46,8 +46,6 @@ namespace gmx
 {
 namespace test
 {
-namespace
-{
 
 class ConvertTprTest : public ::testing::Test
 {
@@ -70,7 +68,6 @@ protected:
     ConvertTprNoVelocityTest() : ConvertTprTest("integrator  = steep\n") {}
 };
 
-} // namespace
 } // namespace test
 } // namespace gmx
 

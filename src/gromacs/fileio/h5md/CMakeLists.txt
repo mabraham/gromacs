@@ -60,6 +60,7 @@ endif()
 
 target_link_libraries(h5md PRIVATE
     common
+    external_scope_guard
     legacy_api
     legacy_modules
     math

@@ -381,7 +381,8 @@ public:
     void mergeObject(KeyValueTreeObject&& obj)
     {
         GMX_ASSERT(objectHasDistinctProperties(obj), "Trying to merge overlapping object");
-        for (auto& prop : obj.valueMap_)
+        KeyValueTreeObject local{ std::move(obj) };
+        for (auto& prop : local.valueMap_)
         {
             addRawValue(prop.first, std::move(prop.second));
         }

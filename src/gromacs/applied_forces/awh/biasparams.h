@@ -102,19 +102,19 @@ public:
      *
      * \returns true when we can skip updates.
      */
-    inline bool skipUpdates() const { return (!disableUpdateSkips_ && localWeightScaling == 1); }
+    bool skipUpdates() const { return (!disableUpdateSkips_ && localWeightScaling == 1); }
 
     /*! \brief
      * Returns the radius that needs to be sampled around a point before it is considered covered.
      */
-    inline const awh_ivec& coverRadius() const { return coverRadius_; }
+    const awh_ivec& coverRadius() const { return coverRadius_; }
 
     /*! \brief
      * Returns whether we should sample the coordinate.
      *
      * \param[in] step  The MD step number.
      */
-    inline bool isSampleCoordStep(int64_t step) const
+    bool isSampleCoordStep(int64_t step) const
     {
         return (step > 0 && step % numStepsSampleCoord_ == 0);
     }
@@ -124,7 +124,7 @@ public:
      *
      * \param[in] step  The MD step number.
      */
-    inline bool isUpdateFreeEnergyStep(int64_t step) const
+    bool isUpdateFreeEnergyStep(int64_t step) const
     {
         int stepIntervalUpdateFreeEnergy = numSamplesUpdateFreeEnergy_ * numStepsSampleCoord_;
         return (step > 0 && step % stepIntervalUpdateFreeEnergy == 0);
@@ -135,7 +135,7 @@ public:
      *
      * \param[in] step  The MD step number.
      */
-    inline bool isUpdateTargetStep(int64_t step) const { return step % numStepsUpdateTarget_ == 0; }
+    bool isUpdateTargetStep(int64_t step) const { return step % numStepsUpdateTarget_ == 0; }
 
     /*! \brief
      * Returns if to do checks for covering in the initial stage.

@@ -124,7 +124,7 @@ public:
     }
 
     //! Make the md arguments to work with
-    std::vector<std::string> makeMdArgs() const
+    std::vector<std::string> makeMdArgs() const // NOLINT(readability-function-cognitive-complexity)
     {
         std::vector<std::string> mdArgs;
 

@@ -79,8 +79,8 @@ std::string describeMkl()
 // Turn A into a string literal after macro-expanding it.
 #define STRINGIZE(A) STRINGIZE_NO_EXPAND(A)
 
-const char* sc_blasDescription   = STRINGIZE(GMX_DESCRIBE_BLAS);
-const char* sc_lapackDescription = STRINGIZE(GMX_DESCRIBE_LAPACK);
+const char* const sc_blasDescription   = STRINGIZE(GMX_DESCRIBE_BLAS);
+const char* const sc_lapackDescription = STRINGIZE(GMX_DESCRIBE_LAPACK);
 
 } // namespace
 

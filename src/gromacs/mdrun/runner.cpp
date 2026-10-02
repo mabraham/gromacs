@@ -469,6 +469,7 @@ void Mdrunner::spawnThreads(int numThreadsToLaunch)
 #else
     GMX_UNUSED_VALUE(numThreadsToLaunch);
     GMX_UNUSED_VALUE(mdrunner_start_fn);
+    GMX_UNUSED_VALUE(simulationCommunicator);
 #endif
 }
 

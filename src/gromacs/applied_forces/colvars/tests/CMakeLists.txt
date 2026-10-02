@@ -53,6 +53,13 @@ if(GMX_LIB_MPI)
     target_compile_definitions(colvars_applied_forces-test PRIVATE -DCOLVARS_MPI)
 endif()
 
-target_link_libraries(colvars_applied_forces-test PRIVATE applied_forces math topology mdlib
-    mdtypes)
+target_link_libraries(colvars_applied_forces-test
+    PRIVATE
+        applied_forces
+        colvars
+        math
+        topology
+        mdlib
+        mdtypes
+        )
 

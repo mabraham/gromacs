@@ -799,12 +799,12 @@ bool ModularSimulatorAlgorithmBuilderHelper::elementIsStored(const ISimulatorEle
     return builder_->elementExists(element);
 }
 
-[[maybe_unused]] void ModularSimulatorAlgorithmBuilderHelper::registerPreStepScheduling(SchedulingFunction schedulingFunction)
+[[maybe_unused]] void ModularSimulatorAlgorithmBuilderHelper::registerPreStepScheduling(SchedulingFunction&& schedulingFunction)
 {
     builder_->preStepScheduling_.emplace_back(std::move(schedulingFunction));
 }
 
-[[maybe_unused]] void ModularSimulatorAlgorithmBuilderHelper::registerPostStepScheduling(SchedulingFunction schedulingFunction)
+[[maybe_unused]] void ModularSimulatorAlgorithmBuilderHelper::registerPostStepScheduling(SchedulingFunction&& schedulingFunction)
 {
     builder_->postStepScheduling_.emplace_back(std::move(schedulingFunction));
 }
@@ -823,21 +823,21 @@ std::optional<std::any> ModularSimulatorAlgorithmBuilderHelper::builderData(cons
 }
 
 void ModularSimulatorAlgorithmBuilderHelper::registerTemperaturePressureControl(
-        std::function<void(const PropagatorConnection&)> registrationFunction)
+        std::function<void(const PropagatorConnection&)>&& registrationFunction)
 {
     builder_->pressureTemperatureControlRegistrationFunctions_.emplace_back(std::move(registrationFunction));
 }
 
-void ModularSimulatorAlgorithmBuilderHelper::registerPropagator(PropagatorConnection connectionData)
+void ModularSimulatorAlgorithmBuilderHelper::registerPropagator(PropagatorConnection&& connectionData)
 {
     builder_->propagatorConnections_.emplace_back(std::move(connectionData));
 }
 
 void ModularSimulatorAlgorithmBuilderHelper::registerReferenceTemperatureUpdate(
-        ReferenceTemperatureCallback referenceTemperatureCallback)
+        ReferenceTemperatureCallback&& referenceTemperatureCallback)
 {
     auto* referenceTemperatureManager =
-            simulationData<ReferenceTemperatureManager>("ReferenceTemperatureManager").value();
+            this->simulationData<ReferenceTemperatureManager>("ReferenceTemperatureManager").value();
     referenceTemperatureManager->registerUpdateCallback(std::move(referenceTemperatureCallback));
 }
 
@@ -846,7 +846,7 @@ ReferenceTemperatureCallback ModularSimulatorAlgorithmBuilderHelper::changeRefer
     // Capture is safe because SimulatorAlgorithm will manage life time of both the
     // recipient of the callback and the reference temperature manager
     auto* referenceTemperatureManager =
-            simulationData<ReferenceTemperatureManager>("ReferenceTemperatureManager").value();
+            this->simulationData<ReferenceTemperatureManager>("ReferenceTemperatureManager").value();
     return [referenceTemperatureManager](ArrayRef<const real>                temperatures,
                                          ReferenceTemperatureChangeAlgorithm algorithm)
     { referenceTemperatureManager->setReferenceTemperature(temperatures, algorithm); };

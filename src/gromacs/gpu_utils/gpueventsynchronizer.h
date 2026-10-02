@@ -128,7 +128,7 @@ public:
      *
      * If the event has been marked before and not fully consumed, throws \ref gmx::InternalError.
      */
-    inline void markEvent(const DeviceStream& deviceStream)
+    void markEvent(const DeviceStream& deviceStream)
     {
         if (g_useEventConsumptionCounting && consumptionCount_ < minConsumptionCount_)
         {
@@ -142,7 +142,7 @@ public:
      * for an external event while capturing a graph
      */
     // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-    inline void markExternalEventWhileCapturingGraph(const DeviceStream& deviceStream)
+    void markExternalEventWhileCapturingGraph(const DeviceStream& deviceStream)
     {
 #if GMX_HAVE_GPU_GRAPH_SUPPORT && GMX_GPU_CUDA
         event_.markExternalEventWhileCapturingGraph(deviceStream);
@@ -158,14 +158,14 @@ public:
      *
      * Consumes the event if able, otherwise throws \ref gmx::InternalError.
      */
-    inline void waitForEvent()
+    void waitForEvent()
     {
         consume();
         event_.wait();
         resetIfFullyConsumed();
     }
     //! Checks the completion of the underlying event and consumes the event if it is ready.
-    inline bool isReady()
+    bool isReady()
     {
         bool isReady = event_.isReady();
         if (isReady)
@@ -176,12 +176,12 @@ public:
         return isReady;
     }
     //! Checks whether the event was marked (and was not reset since then).
-    inline bool isMarked() const { return event_.isMarked(); }
+    bool isMarked() const { return event_.isMarked(); }
     /*! \brief Manually consume the event without waiting for it.
      *
      * If the event is already fully consumed, throws \ref gmx::InternalError.
      */
-    inline void consume()
+    void consume()
     {
         if (g_useEventConsumptionCounting && consumptionCount_ >= maxConsumptionCount_)
         {
@@ -191,7 +191,7 @@ public:
         consumptionCount_++;
     }
     //! Helper function to reset the event when it is fully consumed.
-    inline void resetIfFullyConsumed()
+    void resetIfFullyConsumed()
     {
         if (consumptionCount_ == maxConsumptionCount_)
         {
@@ -202,7 +202,7 @@ public:
      *
      * Consumes the event if able, otherwise throws \ref gmx::InternalError.
      */
-    inline void enqueueWaitEvent(const DeviceStream& deviceStream)
+    void enqueueWaitEvent(const DeviceStream& deviceStream)
     {
         consume();
         event_.enqueueWait(deviceStream);
@@ -214,7 +214,7 @@ public:
      *
      */
     // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-    inline void enqueueExternalWaitEventWhileCapturingGraph(const DeviceStream& deviceStream)
+    void enqueueExternalWaitEventWhileCapturingGraph(const DeviceStream& deviceStream)
     {
 #if GMX_HAVE_GPU_GRAPH_SUPPORT && GMX_GPU_CUDA
         event_.enqueueExternalWaitEventWhileCapturingGraph(deviceStream);
@@ -227,7 +227,7 @@ public:
     }
     CLANG_DIAGNOSTIC_RESET
     //! Resets the event to unmarked state, releasing the underlying event object if needed.
-    inline void reset()
+    void reset()
     {
         // Set such that we can mark new event without triggering an exception, but can not consume.
         consumptionCount_ = maxConsumptionCount_;
@@ -235,7 +235,7 @@ public:
     }
 
     //! Set the event consumption limits.
-    inline void setConsumptionLimits(int minConsumptionCount, int maxConsumptionCount)
+    void setConsumptionLimits(int minConsumptionCount, int maxConsumptionCount)
     {
         minConsumptionCount_ = minConsumptionCount;
         maxConsumptionCount_ = maxConsumptionCount;

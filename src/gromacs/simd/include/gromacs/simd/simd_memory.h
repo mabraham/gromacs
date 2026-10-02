@@ -169,10 +169,9 @@ public:
     }
     //! \copydoc ArrayRef::ArrayRef(U&&)
     template<typename U, typename = std::enable_if_t<std::is_convertible_v<typename U::pointer, pointer>>>
-    SimdArrayRef(U&& o) :
-        begin_(reinterpret_cast<pointer>(o.data())),
-        end_(reinterpret_cast<pointer>(o.data() + o.size()))
+    SimdArrayRef(U&& o)
     {
+        *this = std::forward<U>(o);
     }
     // reinterpret_cast is only needed for const conversion of SimdArrayRef itself.
     // All other containers have type(o.data())==U::pointer (the cast does nothing).

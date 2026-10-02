@@ -114,6 +114,7 @@ protected:
     IMdpOptionProvider& operator=(IMdpOptionProvider&&) noexcept = default;
     //! \}
 
+public:
     virtual ~IMdpOptionProvider() {}
 };
 

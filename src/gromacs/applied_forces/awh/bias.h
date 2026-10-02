@@ -277,26 +277,26 @@ public:
     void doSkippedUpdatesForAllPoints();
 
     //! Returns the dimensionality of the bias.
-    inline int ndim() const { return dimParams_.size(); }
+    int ndim() const { return dimParams_.size(); }
 
     /*! \brief Returns the dimension parameters.
      */
-    inline ArrayRef<const DimParams> dimParams() const { return dimParams_; }
+    ArrayRef<const DimParams> dimParams() const { return dimParams_; }
 
     //! Returns the bias parameters
-    inline const BiasParams& params() const { return params_; }
+    const BiasParams& params() const { return params_; }
 
     //! Returns the global state of the bias.
-    inline const BiasState& state() const { return state_; }
+    const BiasState& state() const { return state_; }
 
     //! Returns the index of the bias.
-    inline int biasIndex() const { return params_.biasIndex_; }
+    int biasIndex() const { return params_.biasIndex_; }
 
     /*! \brief Return the coordinate value for a grid point.
      *
      * \param[in] gridPointIndex  The index of the grid point.
      */
-    inline const awh_dvec& getGridCoordValue(size_t gridPointIndex) const
+    const awh_dvec& getGridCoordValue(size_t gridPointIndex) const
     {
         GMX_ASSERT(gridPointIndex < grid_.numPoints(),
                    "gridPointIndex should be in the range of the grid");

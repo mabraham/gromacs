@@ -430,7 +430,7 @@ TEST_F(H5mdAttributeTest, VectorAttributeEdgeCases)
         "안녕하세요",
         // UTF-8: Emojis
         "😀😃😄😁🔥",
-        // long string
+        // NOLINTNEXTLINE(bugprone-suspicious-missing-comma) deliberately long string
         "This is a very long string that exceeds the typical length of a residue name, "
         "but it is still a valid string for testing purposes."
     };

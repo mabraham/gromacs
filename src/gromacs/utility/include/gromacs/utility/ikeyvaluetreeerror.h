@@ -53,7 +53,6 @@ class IKeyValueTreeErrorHandler
 public:
     virtual bool onError(UserInputError* ex, const KeyValueTreePath& context) = 0;
 
-protected:
     virtual ~IKeyValueTreeErrorHandler();
 };
 

@@ -387,7 +387,7 @@ public:
 #endif
 
     //! Nothing do to here, reduction happens after the kernel call
-    inline void reduceIEnergies(const bool gmx_unused calculateCoulomb) {}
+    void reduceIEnergies(const bool gmx_unused calculateCoulomb) {}
 
     /*! \brief Reduce the group-pair energy buffers produced by a SIMD kernels
      * and return the results in the output buffers.

@@ -91,11 +91,11 @@ public:
         return typename SectionType::HandleType(storage);
     }
 
-protected:
     // Disallow deletion through the interface.
     // (no need for the virtual, but some compilers warn otherwise)
     ~IOptionsContainerWithSections() override;
 
+protected:
     /*! \brief
      * Adds a section to this container.
      *

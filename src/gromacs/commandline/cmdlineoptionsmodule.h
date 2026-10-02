@@ -111,7 +111,6 @@ public:
      */
     virtual void addOptionsBehavior(const std::shared_ptr<IOptionsBehavior>& behavior) = 0;
 
-protected:
     // Disallow deletion through the interface.
     // (no need for the virtual, but some compilers warn otherwise)
     virtual ~ICommandLineOptionsModuleSettings();

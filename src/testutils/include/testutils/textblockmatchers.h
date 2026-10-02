@@ -114,7 +114,6 @@ public:
     //! Factory method that constructs the matcher after parameters are set.
     virtual TextBlockMatcherPointer createMatcher() const = 0;
 
-protected:
     virtual ~ITextBlockMatcherSettings();
 };
 

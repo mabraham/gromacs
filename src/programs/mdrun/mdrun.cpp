@@ -57,7 +57,7 @@
 #include <utility>
 #include <vector>
 
-#include "external/scope_guard/scope_guard.h"
+#include "scope_guard/scope_guard.h"
 
 #include "gromacs/commandline/filenm.h"
 #include "gromacs/commandline/pargs.h"
@@ -75,7 +75,6 @@
 #include "gromacs/mdrunutility/logging.h"
 #include "gromacs/mdrunutility/multisim.h"
 #include "gromacs/mdtypes/mdrunoptions.h"
-#include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/basenetwork.h"
 #include "gromacs/utility/fatalerror.h"
@@ -235,15 +234,14 @@ int gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int argc, char
         return 0;
     }
 
-    ArrayRef<const std::string> multiSimDirectoryNames =
-            opt2fnsIfOptionSet("-multidir", gmx::ssize(options.filenames), options.filenames.data());
-
     // The SimulationContext is necessary with gmxapi so that
     // resources owned by the client code can have suitable
     // lifetime. The gmx wrapper binary uses the same infrastructure,
     // but the lifetime is now trivially that of the invocation of the
     // wrapper binary.
-    SimulationContext simulationContext(communicator, multiSimDirectoryNames);
+    SimulationContext simulationContext(
+            communicator,
+            opt2fnsIfOptionSet("-multidir", gmx::ssize(options.filenames), options.filenames.data()));
 
     StartingBehavior startingBehavior = StartingBehavior::NewSimulation;
     LogFilePtr       logFileGuard     = nullptr;

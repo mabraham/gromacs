@@ -8,6 +8,7 @@
 #         -cppcoreguidelines-avoid-non-const-global-variables
 # The selection code has a large amount of static or exported non-const
 # variables that are out of scope for quick rework
+#
 Checks:  -bugprone-reserved-identifier,
          -cppcoreguidelines-avoid-non-const-global-variables
 InheritParentConfig: true

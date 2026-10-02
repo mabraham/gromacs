@@ -71,7 +71,6 @@ public:
     virtual ::testing::AssertionResult checkEntry(const ReferenceDataEntry& entry,
                                                   const std::string&        fullId) const = 0;
 
-protected:
     virtual ~IReferenceDataEntryChecker() {}
 };
 

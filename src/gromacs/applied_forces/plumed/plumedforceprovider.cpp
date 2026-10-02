@@ -63,7 +63,7 @@
 #define __PLUMED_WRAPPER_IMPLEMENTATION 1 // NOLINT(bugprone-reserved-identifier)
 #define __PLUMED_HAS_DLOPEN               // NOLINT(bugprone-reserved-identifier)
 
-#include "external/plumed/Plumed.h"
+#include "plumed/Plumed.h"
 
 namespace gmx
 {

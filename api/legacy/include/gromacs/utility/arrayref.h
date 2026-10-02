@@ -191,8 +191,9 @@ public:
      * a temporary to a method that takes ArrayRef.
      */
     template<typename U, typename = std::enable_if_t<std::is_convertible_v<typename U::pointer, pointer>>>
-    ArrayRef(U&& o) : begin_(o.data()), end_(o.data() + o.size())
+    ArrayRef(U&& o)
     {
+        *this = std::forward<U>(o);
     }
     /*! \brief
      * Constructs a reference to a particular range.

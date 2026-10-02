@@ -36,6 +36,7 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 set(LIBGROMACS_SOURCES)
+set(LIBGROMACS_SKIP_LINTING_SOURCES)
 
 set_property(GLOBAL PROPERTY GMX_LIBGROMACS_SOURCES)
 set_property(GLOBAL PROPERTY CUDA_SOURCES)
@@ -181,6 +182,11 @@ endif()
 
 if (GMX_GPU_CUDA)
     add_library(libgromacs ${LIBGROMACS_SOURCES})
+
+    # Skip files we do not wish to lint
+    foreach(_file ${LIBGROMACS_SKIP_LINTING_SOURCES})
+        set_source_files_properties(${_file} PROPERTIES SKIP_LINTING ON)
+    endforeach()
 
     #we cannot link with both cufftmp and cufft
     if(GMX_USE_cuFFTMp)
@@ -415,6 +421,7 @@ target_link_libraries(libgromacs PRIVATE
                       $<BUILD_INTERFACE:energyanalysis>
                       $<BUILD_INTERFACE:essentialdynamics>
                       $<BUILD_INTERFACE:ewald>
+                      $<BUILD_INTERFACE:external_scope_guard>
                       $<BUILD_INTERFACE:fft>
                       $<BUILD_INTERFACE:fileio>
                       $<BUILD_INTERFACE:fmm>

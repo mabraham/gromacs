@@ -82,7 +82,7 @@ template<>
 class CoulombCalculator<KernelCoulombType::RF>
 {
 public:
-    inline CoulombCalculator(const interaction_const_t& ic) :
+    CoulombCalculator(const interaction_const_t& ic) :
         minusTwoTimesRFCoeff_(-2.0_real * ic.coulomb.reactionFieldCoefficient),
         rfOffset_(ic.coulomb.reactionFieldShift),
         selfEnergy_(0.5_real * ic.coulomb.reactionFieldShift)
@@ -90,7 +90,7 @@ public:
     }
 
     //! Returns the self energy
-    inline real selfEnergy() const { return selfEnergy_; }
+    real selfEnergy() const { return selfEnergy_; }
 
     //! Returns the force
     template<int nR>
@@ -133,7 +133,7 @@ template<>
 class CoulombCalculator<KernelCoulombType::EwaldAnalytical>
 {
 public:
-    inline CoulombCalculator(const interaction_const_t& ic) :
+    CoulombCalculator(const interaction_const_t& ic) :
         beta_(ic.coulomb.ewaldCoeff),
         betaSquared_(gmx::square(ic.coulomb.ewaldCoeff)),
         selfEnergy_(0.5_real * ic.coulomb.ewaldCoeff * M_2_SQRTPI) // beta/sqrt(pi)
@@ -141,7 +141,7 @@ public:
     }
 
     //! Returns the self energy
-    inline real selfEnergy() const { return selfEnergy_; }
+    real selfEnergy() const { return selfEnergy_; }
 
     /*! \brief Returns the force
      *
@@ -212,7 +212,7 @@ template<>
 class CoulombCalculator<KernelCoulombType::EwaldTabulated>
 {
 public:
-    inline CoulombCalculator(const interaction_const_t& ic) :
+    CoulombCalculator(const interaction_const_t& ic) :
         invTableSpacing_(ic.coulombEwaldTables->scale),
         minusHalfTableSpacing_(-0.5_real / ic.coulombEwaldTables->scale),
         tableForce_(c_useTableFormatFDV0 ? ic.coulombEwaldTables->tableFDV0.data()
@@ -225,7 +225,7 @@ public:
     }
 
     //! Returns the self energy
-    inline real selfEnergy() const { return selfEnergy_; }
+    real selfEnergy() const { return selfEnergy_; }
 
     /*! \brief Returns the force
      *
@@ -397,10 +397,10 @@ template<>
 class CoulombCalculator<KernelCoulombType::None>
 {
 public:
-    inline CoulombCalculator(const interaction_const_t&) {}
+    CoulombCalculator(const interaction_const_t& /*unused*/) {}
 
     //! Never use this method
-    inline real selfEnergy() const
+    static real selfEnergy()
     {
         gmx_fatal(FARGS,
                   "CoulombCalculator->selfEnergy() should not be called when NBNxM kernels are not "
@@ -410,10 +410,10 @@ public:
 
     //! Never use this method
     template<int nR>
-    inline std::array<SimdReal, nR> force(std::array<SimdReal, nR>&,
-                                          std::array<SimdReal, nR>&,
-                                          std::array<SimdReal, nR>&,
-                                          std::array<SimdBool, nR>&)
+    std::array<SimdReal, nR> force(std::array<SimdReal, nR>& /*unused*/,
+                                   std::array<SimdReal, nR>& /*unused*/,
+                                   std::array<SimdReal, nR>& /*unused*/,
+                                   std::array<SimdBool, nR>& /*unused*/)
     {
         gmx_fatal(
                 FARGS,
@@ -423,12 +423,12 @@ public:
 
     //! Never use this method
     template<int nR, std::size_t energySize>
-    inline void forceAndCorrectionEnergy(std::array<SimdReal, nR>&,
-                                         std::array<SimdReal, nR>&,
-                                         std::array<SimdReal, nR>&,
-                                         std::array<SimdBool, nR>&,
-                                         std::array<SimdReal, nR>&,
-                                         std::array<SimdReal, energySize>&)
+    void forceAndCorrectionEnergy(std::array<SimdReal, nR>& /*unused*/,
+                                  std::array<SimdReal, nR>& /*unused*/,
+                                  std::array<SimdReal, nR>& /*unused*/,
+                                  std::array<SimdBool, nR>& /*unused*/,
+                                  std::array<SimdReal, nR>& /*unused*/,
+                                  std::array<SimdReal, energySize>& /*unused*/)
     {
         gmx_fatal(FARGS,
                   "CoulombCalculator->forceAndCorrectionEnergy() should not be called when NBNxM "

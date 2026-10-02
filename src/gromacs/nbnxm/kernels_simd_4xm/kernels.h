@@ -51,6 +51,9 @@ template<KernelLayout         kernelLayout,
          InteractionModifiers vdwModifier,
          LJEwald              ljEwald,
          EnergyOutput         energyOutput>
+// kerneldispatch.cpp deliberately includes both the 4xm and 2xmm headers, so
+// sometimes this declaration is deliberately duplicated.
+// NOLINTNEXTLINE(readability-redundant-declaration)
 void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
                      const nbnxm_atomdata_t&    nbat,
                      const interaction_const_t& ic,

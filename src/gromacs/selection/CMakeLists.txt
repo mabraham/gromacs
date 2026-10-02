@@ -88,6 +88,15 @@ target_link_libraries(selection INTERFACE
 # TODO: Explicitly link specific modules.
 #target_link_libraries(selection PRIVATE legacy_modules)
 
+# We do not want to lint generated code
+set_source_files_properties(parser.cpp PROPERTIES
+    SKIP_LINTING ON
+)
+# We do not want to lint generated code
+set_source_files_properties(scanner.cpp PROPERTIES
+    SKIP_LINTING ON
+)
+
 if (BUILD_TESTING)
     add_subdirectory(tests)
 endif()

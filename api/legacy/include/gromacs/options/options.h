@@ -192,7 +192,7 @@ class OptionsImpl;
  */
 class IOptionManager
 {
-protected:
+public:
     virtual ~IOptionManager();
 };
 

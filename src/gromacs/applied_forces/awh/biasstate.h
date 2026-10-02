@@ -524,7 +524,7 @@ public:
 
     /*! \brief Returns the current histogram size.
      */
-    inline HistogramSize histogramSize() const { return histogramSize_; }
+    HistogramSize histogramSize() const { return histogramSize_; }
 
     /*! \brief Sets the umbrella grid point to the current grid point
      */

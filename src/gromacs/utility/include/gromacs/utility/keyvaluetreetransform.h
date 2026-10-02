@@ -108,7 +108,6 @@ public:
      */
     virtual KeyValueTreeTransformRulesScoped scopedTransform(const KeyValueTreePath& scope) = 0;
 
-protected:
     virtual ~IKeyValueTreeTransformRules();
 };
 

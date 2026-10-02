@@ -105,7 +105,7 @@ ArrayRef<std::conditional_t<operation == CheckpointDataOperation::Write || std::
                             typename std::remove_reference_t<T>::value_type>>
 makeCheckpointArrayRef(T&& container)
 {
-    return container;
+    return std::forward<T>(container);
 }
 
 /*! \internal

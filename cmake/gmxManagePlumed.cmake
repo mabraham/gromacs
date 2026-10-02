@@ -65,7 +65,8 @@ function(gmx_manage_plumed)
             # So we just need to activate the directory in applied_forces
             set(PLUMED_DIR "${CMAKE_SOURCE_DIR}/src/external/plumed")
             target_link_libraries( plumedgmx INTERFACE ${CMAKE_DL_LIBS} )
-            # The plumedgmx already exists, now we set it up:
+            # The plumedgmx already exists, now we set it up.
+            # Ensure we don't get warnings or linting suggestions for these headers.
             target_include_directories(plumedgmx SYSTEM INTERFACE $<BUILD_INTERFACE:${PLUMED_DIR}>)
             set (GMX_PLUMED_ACTIVE ON PARENT_SCOPE)
         else()

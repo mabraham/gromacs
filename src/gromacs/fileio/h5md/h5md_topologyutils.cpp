@@ -245,7 +245,7 @@ void writeAtomicProperties(AtomRange&                     atomRange,
                            const hid_t                    baseContainer,
                            const std::optional<IndexMap>& selectedAtomsIndexMap)
 {
-    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->size() == 0)
+    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->empty())
     {
         GMX_THROW(InternalError(
                 "The index map is empty when writing atomic properties with selection."));
@@ -351,7 +351,7 @@ void writeAtomicProperties(AtomRange&                     atomRange,
 
 void writeResidueInfo(AtomRange& atomRange, const hid_t baseContainer, const std::optional<IndexMap>& selectedAtomsIndexMap)
 {
-    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->size() == 0)
+    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->empty())
     {
         GMX_THROW(InternalError(
                 "The index map is empty when writing atomic properties with selection."));
@@ -450,7 +450,7 @@ void writeResidueInfo(AtomRange& atomRange, const hid_t baseContainer, const std
 
 void writeBonds(const gmx_mtop_t& topology, const hid_t baseContainer, const std::optional<IndexMap>& selectedAtomsIndexMap)
 {
-    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->size() == 0)
+    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->empty())
     {
         GMX_THROW(InternalError(
                 "The index map is empty when writing atomic properties with selection."));
@@ -502,7 +502,7 @@ void writeDisulfideBonds(const gmx_mtop_t&              topology,
                          const hid_t                    baseContainer,
                          const std::optional<IndexMap>& selectedAtomsIndexMap)
 {
-    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->size() == 0)
+    if (selectedAtomsIndexMap.has_value() && selectedAtomsIndexMap->empty())
     {
         GMX_THROW(InternalError(
                 "The index map is empty when writing atomic properties with selection."));
@@ -533,7 +533,7 @@ void writeDisulfideBonds(const gmx_mtop_t&              topology,
     }
 
     // Write the information of disulfide bonds
-    if (systemBonds.size() > 0)
+    if (!systemBonds.empty())
     {
         const size_t bondCount = systemBonds.size() / 2;
         H5mdFixedDataSet<int64_t> dBonds = H5mdDataSetBuilder<int64_t>(baseContainer, c_disulfideBondsName)

@@ -122,11 +122,11 @@ public:
         return info->toType<typename OptionType::InfoType>();
     }
 
-protected:
     // Disallow deletion through the interface.
     // (no need for the virtual, but some compilers warn otherwise)
     virtual ~IOptionsContainer();
 
+protected:
     /*! \brief
      * Adds a recognized option.
      *

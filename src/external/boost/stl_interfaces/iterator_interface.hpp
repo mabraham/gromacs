@@ -68,16 +68,16 @@ namespace gmx { namespace boost { namespace stl_interfaces {
         template<typename Pointer, typename T>
         auto make_pointer(
             T && value,
-            std::enable_if_t<std::is_pointer<Pointer>::value, int> = 0)
+            std::enable_if_t<std::is_pointer<Pointer>::value, int>  /*unused*/ = 0)
             -> decltype(std::addressof(value))
         {
-            return std::addressof(value);
+            return std::addressof(std::forward<T>(value));
         }
 
         template<typename Pointer, typename T>
         auto make_pointer(
             T && value,
-            std::enable_if_t<!std::is_pointer<Pointer>::value, int> = 0)
+            std::enable_if_t<!std::is_pointer<Pointer>::value, int>  /*unused*/ = 0)
         {
             return Pointer(std::forward<T>(value));
         }
@@ -166,9 +166,11 @@ namespace gmx { namespace boost { namespace stl_interfaces {
             return static_cast<common_t<T, U>>(lhs) -
                    static_cast<common_t<T, U>>(rhs);
         }
-    }
+    }  // namespace detail
 
-}}}
+}  // namespace stl_interfaces
+}  // namespace boost
+}  // namespace gmx
 
 namespace gmx { namespace boost { namespace stl_interfaces { inline namespace v1 {
 
@@ -239,7 +241,7 @@ namespace gmx { namespace boost { namespace stl_interfaces { inline namespace v1
                               Reference,
                               Pointer,
                               DifferenceType> const &);
-    }
+    }  // namespace v1_dtl
 
     template<
         typename Derived,
@@ -539,7 +541,10 @@ namespace gmx { namespace boost { namespace stl_interfaces { inline namespace v1
         proxy_arrow_result<Reference>,
         DifferenceType>;
 
-}}}}
+}  // namespace v1
+}  // namespace stl_interfaces
+}  // namespace boost
+}  // namespace gmx
 
 #ifdef BOOST_STL_INTERFACES_DOXYGEN
 
@@ -571,7 +576,7 @@ namespace gmx { namespace boost { namespace stl_interfaces { inline namespace v1
 
 #define BOOST_STL_INTERFACES_STATIC_ASSERT_ITERATOR_CONCEPT_IMPL(              \
     type, concept_name)                                                        \
-    static_assert(concept_name<type>, "");
+    static_assert((concept_name)<type>, "");
 
 #define BOOST_STL_INTERFACES_STATIC_ASSERT_CONCEPT(iter, concept_name)
 

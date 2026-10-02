@@ -73,7 +73,6 @@ public:
      */
     virtual void initOptions(IOptionsContainer* options) = 0;
 
-protected:
     virtual ~TestOptionsProvider() {}
 };
 

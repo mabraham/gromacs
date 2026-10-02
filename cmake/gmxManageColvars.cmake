@@ -43,8 +43,9 @@ function(gmx_manage_colvars)
 
         # Create an object library for the colvars sources
         set(COLVARS_DIR "${CMAKE_SOURCE_DIR}/src/external/colvars")
-        file(GLOB COLVARS_SOURCES ${COLVARS_DIR}/*.cpp)
+        file(GLOB COLVARS_SOURCES ${COLVARS_DIR}/colvars/*.cpp)
         add_library(colvars_objlib OBJECT ${COLVARS_SOURCES})
+
         if(GMX_LIB_MPI)
             target_compile_definitions(colvars_objlib PRIVATE -DCOLVARS_MPI)
             target_link_libraries(colvars_objlib PRIVATE MPI::MPI_CXX)
@@ -66,6 +67,7 @@ function(gmx_manage_colvars)
         # Create an INTERFACE library for colvars with the object library as a dependency
         add_library(colvars INTERFACE)
         target_sources(colvars INTERFACE $<TARGET_OBJECTS:colvars_objlib>)
+        # Ensure we don't get warnings or linting suggestions for these headers.
         target_include_directories(colvars SYSTEM INTERFACE $<BUILD_INTERFACE:${COLVARS_DIR}>)
         if(GMX_LIB_MPI)
             target_compile_definitions(colvars INTERFACE -DCOLVARS_MPI)

@@ -103,7 +103,7 @@ template<int nR, KernelLayout kernelLayout>
 class DiagonalMasker<nR, kernelLayout, KernelLayoutClusterRatio::JSizeEqualsISize>
 {
 public:
-    inline DiagonalMasker(const nbnxm_atomdata_t::SimdMasks& simdMasks) :
+    DiagonalMasker(const nbnxm_atomdata_t::SimdMasks& simdMasks) :
         diagonalMaskV_(generateDiagonalMasks<nR, kernelLayout>(simdMasks)[0])
     {
     }
@@ -129,7 +129,7 @@ template<int nR, KernelLayout kernelLayout>
 class DiagonalMasker<nR, kernelLayout, KernelLayoutClusterRatio::JSizeIsDoubleISize>
 {
 public:
-    inline DiagonalMasker(const nbnxm_atomdata_t::SimdMasks& simdMasks) :
+    DiagonalMasker(const nbnxm_atomdata_t::SimdMasks& simdMasks) :
         diagonalMaskVV_(generateDiagonalMasks<nR, kernelLayout>(simdMasks))
     {
     }
@@ -162,7 +162,7 @@ template<int nR, KernelLayout kernelLayout>
 class DiagonalMasker<nR, kernelLayout, KernelLayoutClusterRatio::JSizeIsHalfISize>
 {
 public:
-    inline DiagonalMasker(const nbnxm_atomdata_t::SimdMasks& simdMasks) :
+    DiagonalMasker(const nbnxm_atomdata_t::SimdMasks& simdMasks) :
         diagonalMaskVV_(generateDiagonalMasks<nR, kernelLayout>(simdMasks))
     {
     }

@@ -52,6 +52,11 @@ gmx_add_gtest_executable(${exename} #MPI
         )
 
 
-target_link_libraries(${exename} PRIVATE mdrun_test_infrastructure ${CMAKE_DL_LIBS})
+target_link_libraries(${exename}
+    PRIVATE
+        mdrun_test_infrastructure
+        plumedgmx
+        ${CMAKE_DL_LIBS}
+        )
 
 gmx_register_gtest_test(${testname} ${exename} INTEGRATION_TEST IGNORE_LEAKS QUICK_GPU_TEST)

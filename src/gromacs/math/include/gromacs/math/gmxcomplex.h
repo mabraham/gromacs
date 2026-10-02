@@ -45,79 +45,44 @@ struct t_complex
 
 static t_complex rcmul(real r, t_complex c)
 {
-    t_complex d;
-
-    d.re = r * c.re;
-    d.im = r * c.im;
-
-    return d;
+    return { r * c.re, r * c.im };
 }
 
 static inline t_complex rcexp(real r)
 {
-    t_complex c;
-
-    c.re = std::cos(r);
-    c.im = std::sin(r);
-
-    return c;
+    return { std::cos(r), std::sin(r) };
 }
 
 
 static inline t_complex cadd(t_complex a, t_complex b)
 {
-    t_complex c;
-
-    c.re = a.re + b.re;
-    c.im = a.im + b.im;
-
-    return c;
+    return { a.re + b.re, a.im + b.im };
 }
 
 static inline t_complex csub(t_complex a, t_complex b)
 {
-    t_complex c;
-
-    c.re = a.re - b.re;
-    c.im = a.im - b.im;
-
-    return c;
+    return { a.re - b.re, a.im - b.im };
 }
 
 static t_complex cmul(t_complex a, t_complex b)
 {
-    t_complex c;
-
-    c.re = a.re * b.re - a.im * b.im;
-    c.im = a.re * b.im + a.im * b.re;
-
-    return c;
+    return { a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re };
 }
 
 static t_complex conjugate(t_complex c)
 {
-    t_complex d;
-
-    d.re = c.re;
-    d.im = -c.im;
-
-    return d;
+    return { c.re, -c.im };
 }
 
 static inline real cabs2(t_complex c)
 {
-    real abs2;
-    abs2 = (c.re * c.re) + (c.im * c.im);
-
-    return abs2;
+    return (c.re * c.re) + (c.im * c.im);
 }
 
 static inline t_complex cdiv(t_complex teller, t_complex noemer)
 {
-    t_complex res, anoemer;
-
-    anoemer = cmul(conjugate(noemer), noemer);
-    res     = cmul(teller, conjugate(noemer));
+    t_complex anoemer = cmul(conjugate(noemer), noemer);
+    t_complex res     = cmul(teller, conjugate(noemer));
 
     return rcmul(1.0 / anoemer.re, res);
 }

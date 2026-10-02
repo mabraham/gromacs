@@ -58,6 +58,7 @@ namespace
 {
 #if GMX_LIB_MPI
 //! Maintains global counter of attempts to initialize MPI
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 int g_initializationCounter = 0;
 #endif
 } // namespace

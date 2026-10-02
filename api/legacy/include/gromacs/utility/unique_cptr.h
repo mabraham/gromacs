@@ -57,6 +57,7 @@ namespace gmx
 template<class T>
 inline void free_wrapper(T* p)
 {
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory)
     std::free(p);
 }
 

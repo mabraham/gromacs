@@ -58,6 +58,7 @@ else()
 endif()
 
 target_link_libraries(h5md-test PRIVATE 
+    external_scope_guard
     h5md
     topology
 )

@@ -262,7 +262,7 @@ void barrierOverAllRanks(MPI_Comm comm)
  * performance might be low.
  *
  * See docs for \c setThrowForPerformanceProblems(const bool) for details. */
-bool g_throwForPerformanceProblems = true;
+bool g_throwForPerformanceProblems = true; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 } // namespace
 

@@ -98,3 +98,7 @@ if(BUILD_TESTING)
 endif()
 add_subdirectory(boost)
 add_subdirectory(rpc_xdr)
+
+add_library(external_scope_guard INTERFACE)
+# Ensure we don't get warnings or linting suggestions for these headers.
+target_include_directories(external_scope_guard SYSTEM INTERFACE scope_guard)

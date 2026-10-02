@@ -47,7 +47,7 @@
 #include <string>
 #include <string_view>
 
-#include "external/scope_guard/scope_guard.h"
+#include "scope_guard/scope_guard.h"
 
 #include "gromacs/fileio/h5md/h5md_datasetbuilder.h"
 #include "gromacs/fileio/h5md/h5md_framedataset.h"

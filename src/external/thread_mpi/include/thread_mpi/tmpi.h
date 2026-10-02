@@ -112,58 +112,66 @@ typedef struct tmpi_req_ *tMPI_Request;
 typedef struct tmpi_datatype_ *tMPI_Datatype;
 
 
-/*! \name tMPI Data types
-    These are MPI data types as specified by the MPI standard.
-    Note that not all are available.  */
+/*! \brief tMPI Data types
+ *
+ * These are MPI data types as specified by the MPI standard.
+ * Note that not all are available.
+ *
+ * Note that the MPI standard requires these are globally accessible
+ * so suppressing the clang-tidy warning is the best solution
+ * available unless we would want to change how tMPI_datatype is
+ * declared. */
 /*! \{ */
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_C_BOOL;             /**< bool */
+extern const tMPI_Datatype TMPI_C_BOOL;             /**< bool */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_CHAR;               /**< char */
+extern const tMPI_Datatype TMPI_CHAR;               /**< char */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_SHORT;              /**< short */
+extern const tMPI_Datatype TMPI_SHORT;              /**< short */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_INT;                /**< int */
+extern const tMPI_Datatype TMPI_INT;                /**< int */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_LONG;               /**< long */
+extern const tMPI_Datatype TMPI_LONG;               /**< long */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 #ifdef SIZEOF_LONG_LONG_INT
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_LONG_LONG;          /**< long long */
+extern const tMPI_Datatype TMPI_LONG_LONG;          /**< long long */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_LONG_LONG_INT;      /**< long long int */
+extern const tMPI_Datatype TMPI_LONG_LONG_INT;      /**< long long int */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 #endif
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_SIGNED_CHAR;        /**< signed char */
+extern const tMPI_Datatype TMPI_SIGNED_CHAR;        /**< signed char */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_UNSIGNED_CHAR;      /**< unsigned char */
+extern const tMPI_Datatype TMPI_UNSIGNED_CHAR;      /**< unsigned char */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_UNSIGNED_SHORT;     /**< unsigned short */
+extern const tMPI_Datatype TMPI_UNSIGNED_SHORT;     /**< unsigned short */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_UNSIGNED;           /**< unsigned int */
+extern const tMPI_Datatype TMPI_UNSIGNED;           /**< unsigned int */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_UNSIGNED_LONG;      /**< unsigned long */
+extern const tMPI_Datatype TMPI_UNSIGNED_LONG;      /**< unsigned long */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 #ifdef SIZEOF_LONG_LONG_INT
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_UNSIGNED_LONG_LONG; /**< unsigned long long */
+extern const tMPI_Datatype TMPI_UNSIGNED_LONG_LONG; /**< unsigned long long */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 #endif
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_FLOAT;              /**< float */
+extern const tMPI_Datatype TMPI_FLOAT;              /**< float */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_DOUBLE;             /**< double */
+extern const tMPI_Datatype TMPI_DOUBLE;             /**< double */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_LONG_DOUBLE;        /**< long double */
-/*extern tMPI_Datatype tMPI_UNSIGNED_WCHAR */
+extern const tMPI_Datatype TMPI_LONG_DOUBLE;        /**< long double */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
+/*extern const tMPI_Datatype tMPI_UNSIGNED_WCHAR */
 TMPI_EXPORT
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 extern const tMPI_Datatype TMPI_BYTE;               /**< byte (for binary
                                                                xmissions) */
 TMPI_EXPORT
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 extern const tMPI_Datatype TMPI_POINTER;            /**< pointer (thread_mpi
                                                                   specific) */
 
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_INT64_T;            /**< int64_t */
+extern const tMPI_Datatype TMPI_INT64_T;            /**< int64_t */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 TMPI_EXPORT
-extern const tMPI_Datatype TMPI_UINT64_T;           /**< uint64_t */
+extern const tMPI_Datatype TMPI_UINT64_T;           /**< uint64_t */ // NOLINT(cppcoreguidelines-avoid-non-const-global-variables,misc-misplaced-const
 
 /*! \} */
 
@@ -210,17 +218,27 @@ enum
 /** default code for undefined value,
 
     For example for undefined color in tMPI_Split(). */
-#define TMPI_UNDEFINED -1
+#define TMPI_UNDEFINED (-1)
 
 /** error handler function */
 typedef void (*tMPI_Errhandler_fn)(tMPI_Comm*, int*);
 /** error handler object */
 typedef struct tmpi_errhandler_ *tMPI_Errhandler;
 
-/** pre-defined error handler that abort()s on every error */
-extern tMPI_Errhandler TMPI_ERRORS_ARE_FATAL;
-/** pre-defined error handler that tries to continue on every error */
-extern tMPI_Errhandler TMPI_ERRORS_RETURN;
+/*! \brief Pre-defined error handler that abort()s on every error
+ *
+ * Note that the MPI standard requires this is globally accessible
+ * and the tMPI implementation treats it as modifiable when errors
+ * happen, so suppressing the clang-tidy warning is the best solution
+ * available until we would want to improve tMPI error handling. */
+extern tMPI_Errhandler TMPI_ERRORS_ARE_FATAL; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+/*! \brief Pre-defined error handler that tries to continue on every error
+ *
+ * Note that the MPI standard requires this is globally accessible
+ * and the tMPI implementation treats it as modifiable when errors
+ * happen, so suppressing the clang-tidy warning is the best solution
+ * available until we would want to improve tMPI error handling. */
+extern tMPI_Errhandler TMPI_ERRORS_RETURN; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 /*! \name tMPI_Comm_compare() return codes */
 /*! \{ */
@@ -237,10 +255,10 @@ extern tMPI_Errhandler TMPI_ERRORS_RETURN;
 
 /** Source number wildcard so tMPI_Recv(), etc. can receive from
            any source. */
-#define TMPI_ANY_SOURCE -1
+#define TMPI_ANY_SOURCE (-1)
 /** Tag number wildcard so tMPI_Recv(), etc. can receive messages with
            any tag. */
-#define TMPI_ANY_TAG -1
+#define TMPI_ANY_TAG (-1)
 
 /** Return code for Cartesian topology with tMPI_Topo_test().  */
 #define TMPI_CART 1
@@ -248,9 +266,14 @@ extern tMPI_Errhandler TMPI_ERRORS_RETURN;
 #define TMPI_GRAPH 2
 
 
-/** Pre-initialized communicator with all available threads. */
+/*! \brief Pre-initialized communicator with all available threads.
+ *
+ * Note that the MPI standard requires this is globally accessible and
+ * the tMPI implementation treats it as modifiable, so suppressing the
+ * clang-tidy warning is the best solution available until we would
+ * want to improve tMPI communicator handling. */
 TMPI_EXPORT
-extern tMPI_Comm TMPI_COMM_WORLD;
+extern tMPI_Comm TMPI_COMM_WORLD; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 
 /** A pre-defined NULL communicator to compare against, to check comm
@@ -260,8 +283,13 @@ extern tMPI_Comm TMPI_COMM_WORLD;
            validity */
 #define TMPI_GROUP_NULL nullptr
 
-/** the empty group */
-extern tMPI_Group TMPI_GROUP_EMPTY;
+/*! \brief The empty group
+ *
+ * Note that the MPI standard requires this is globally accessible and
+ * the tMPI implementation treats it as modifiable, so suppressing the
+ * clang-tidy warning is the best solution available until we would
+ * want to improve tMPI group handling. */
+extern tMPI_Group TMPI_GROUP_EMPTY; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 
 /** The maximum processor name returned using tMPI_Get_processor_name(). */
@@ -317,7 +345,7 @@ typedef enum
 
 #ifndef DOXYGEN
 /* function to obtain tMPI_COMM_SELF */
-tMPI_Comm tMPI_Get_comm_self(void);
+tMPI_Comm tMPI_Get_comm_self();
 #endif
 /** The thread-specific comm containing only the thread itself.
 
@@ -426,7 +454,7 @@ int tMPI_Get_N(int *argc, char ***argv, const char *optname, int *nthreads);
 
     \return  TMPI_SUCCESS on success, TMPI_FAILURE on failure.  */
 TMPI_EXPORT
-int tMPI_Finalize(void);
+int tMPI_Finalize();
 
 
 /** Just kills all threads.
@@ -547,12 +575,12 @@ int tMPI_Get_processor_name(char *name, int *resultlen);
     \return time value.
  */
 TMPI_EXPORT
-double tMPI_Wtime(void);
+double tMPI_Wtime();
 /** get the resolution of tMPI_Wtime as a double, in seconds
 
     \return time resolution. */
 TMPI_EXPORT
-double tMPI_Wtick(void);
+double tMPI_Wtick();
 
 #ifndef DOXYGEN
 #define tMPI_This_threadnr() (int)(tMPI_Get_current() - threads)

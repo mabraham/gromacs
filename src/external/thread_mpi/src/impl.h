@@ -643,7 +643,7 @@ typedef void (*tMPI_Op_fn)(void*, const void*, const void*, int);
 
 struct tmpi_datatype_component
 {
-    struct tmpi_datatype_ *type;
+    const struct tmpi_datatype_ *type;
     unsigned int           count;
 };
 

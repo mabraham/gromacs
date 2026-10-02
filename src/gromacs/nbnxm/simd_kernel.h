@@ -92,10 +92,11 @@ namespace gmx
 //! Whether we calculate shift forces, always true, because it's cheap anyhow
 static constexpr bool sc_calculateShiftForces = true;
 
-namespace
+namespace internal
 {
 
 //! Energy accumulator without data members can be static
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static EnergyAccumulator<false, false> s_energyAccumulator;
 
 //! General template for EnergyAccumulator getter, only specializations are used
@@ -107,9 +108,10 @@ template<>
 class EnergyAccumulatorGetter<false, false>
 {
 public:
-    inline gmx_unused EnergyAccumulatorGetter(nbnxm_atomdata_output_t gmx_unused* out) {}
+    gmx_unused EnergyAccumulatorGetter(nbnxm_atomdata_output_t gmx_unused* out) {}
 
-    inline gmx_unused EnergyAccumulator<false, false>& get() { return s_energyAccumulator; }
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+    gmx_unused EnergyAccumulator<false, false>& get() { return s_energyAccumulator; }
 };
 
 //! Specialized EnergyAccumulator getter for single energy group output
@@ -117,12 +119,9 @@ template<>
 class EnergyAccumulatorGetter<false, true>
 {
 public:
-    inline gmx_unused EnergyAccumulatorGetter(nbnxm_atomdata_output_t* out) : out_(*out) {}
+    gmx_unused EnergyAccumulatorGetter(nbnxm_atomdata_output_t* out) : out_(*out) {}
 
-    inline gmx_unused EnergyAccumulator<false, true>& get()
-    {
-        return *out_.accumulatorSingleEnergies;
-    }
+    gmx_unused EnergyAccumulator<false, true>& get() { return *out_.accumulatorSingleEnergies; }
 
 private:
     nbnxm_atomdata_output_t& out_;
@@ -133,18 +132,15 @@ template<>
 class EnergyAccumulatorGetter<true, true>
 {
 public:
-    inline gmx_unused EnergyAccumulatorGetter(nbnxm_atomdata_output_t* out) : out_(*out) {}
+    gmx_unused EnergyAccumulatorGetter(nbnxm_atomdata_output_t* out) : out_(*out) {}
 
-    inline gmx_unused EnergyAccumulator<true, true>& get()
-    {
-        return *out_.accumulatorGroupEnergies;
-    }
+    gmx_unused EnergyAccumulator<true, true>& get() { return *out_.accumulatorGroupEnergies; }
 
 private:
     nbnxm_atomdata_output_t& out_;
 };
 
-} // namespace
+} // namespace internal
 
 /*! \brief The actual NBNxM SIMD kernel
  *
@@ -304,7 +300,7 @@ void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
     const real* gmx_restrict x        = nbat.x().data();
 
     EnergyAccumulator<useEnergyGroups, calculateEnergies>& energyAccumulator =
-            EnergyAccumulatorGetter<useEnergyGroups, calculateEnergies>(out).get();
+            internal::EnergyAccumulatorGetter<useEnergyGroups, calculateEnergies>(out).get();
 
     const nbnxm_cj_t* l_cj = pairlist.cj.list_.data();
 
@@ -472,7 +468,7 @@ void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
                 constexpr bool c_needToCheckExclusions = false;
                 for (; (cjind < cjind1); cjind++)
                 {
-#include "simd_kernel_inner.h"
+#include "simd_kernel_inner.h" // NOLINT(readability-duplicate-include)
                 }
             }
         }
@@ -485,7 +481,7 @@ void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
                 constexpr bool c_needToCheckExclusions = true;
                 while (cjind < cjind1 && pairlist.cj.excl(cjind) != NBNXM_INTERACTION_MASK_ALL)
                 {
-#include "simd_kernel_inner.h"
+#include "simd_kernel_inner.h" // NOLINT(readability-duplicate-include)
                     cjind++;
                 }
             }
@@ -493,7 +489,7 @@ void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
                 constexpr bool c_needToCheckExclusions = false;
                 for (; (cjind < cjind1); cjind++)
                 {
-#include "simd_kernel_inner.h"
+#include "simd_kernel_inner.h" // NOLINT(readability-duplicate-include)
                 }
             }
         }
@@ -506,7 +502,7 @@ void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
                 constexpr bool c_needToCheckExclusions = true;
                 while (cjind < cjind1 && pairlist.cj.excl(cjind) != NBNXM_INTERACTION_MASK_ALL)
                 {
-#include "simd_kernel_inner.h"
+#include "simd_kernel_inner.h" // NOLINT(readability-duplicate-include)
                     cjind++;
                 }
             }
@@ -514,7 +510,7 @@ void nbnxmKernelSimd(const NbnxmPairlistCpu&    pairlist,
                 constexpr bool c_needToCheckExclusions = false;
                 for (; (cjind < cjind1); cjind++)
                 {
-#include "simd_kernel_inner.h"
+#include "simd_kernel_inner.h" // NOLINT(readability-duplicate-include)
                 }
             }
         }

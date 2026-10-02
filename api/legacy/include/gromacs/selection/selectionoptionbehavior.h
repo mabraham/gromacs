@@ -102,7 +102,6 @@ public:
      */
     virtual int getAtomCount() = 0;
 
-protected:
     virtual ~ITopologyProvider();
 };
 

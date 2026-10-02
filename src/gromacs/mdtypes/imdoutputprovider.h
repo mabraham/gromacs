@@ -90,7 +90,6 @@ public:
     //! Finalizes output from a simulation run.
     virtual void finishOutput() = 0;
 
-protected:
     virtual ~IMDOutputProvider() {}
 };
 

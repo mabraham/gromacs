@@ -611,11 +611,11 @@ static inline ::testing::AssertionResult assertEqualWithinTolerance(const char* 
     {
         return ::testing::AssertionSuccess();
     }
-    return ::testing::AssertionFailure() << "  Value of: " << expr2 << std::endl
-                                         << "    Actual: " << value2 << std::endl
-                                         << "  Expected: " << expr1 << std::endl
-                                         << "  Which is: " << value1 << std::endl
-                                         << "Difference: " << diff.toString() << std::endl
+    return ::testing::AssertionFailure() << "  Value of: " << expr2 << "\n"
+                                         << "    Actual: " << value2 << "\n"
+                                         << "  Expected: " << expr1 << "\n"
+                                         << "  Which is: " << value1 << "\n"
+                                         << "Difference: " << diff.toString() << "\n"
                                          << " Tolerance: " << tolerance.toString(diff);
 }
 //! \endcond
@@ -685,7 +685,7 @@ static inline ::testing::AssertionResult assertEqualWithinTolerance(const char* 
 /*! \internal \brief
  * Helper method for `(EXPECT|ASSERT)_PLAIN`.
  */
-static inline ::testing::AssertionResult plainAssertHelper(const char* /*expr*/,
+static inline ::testing::AssertionResult plainAssertHelper(const char* /* expr */,
                                                            const ::testing::AssertionResult& expr)
 {
     return expr;

@@ -172,7 +172,7 @@ template<>
 class LennardJonesCalculator<false, InteractionModifiers::PotShift>
 {
 public:
-    inline LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings gmx_unused& ic) {}
+    LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings gmx_unused& ic) {}
 
     //! Computes F*r for LJ with (un)shifted potential with C6/C12 parameters
     template<int nR, bool maskInteractions, std::size_t inputSize, std::size_t interactSize, std::size_t vljvSize>
@@ -224,7 +224,7 @@ template<>
 class LennardJonesCalculator<true, InteractionModifiers::PotShift>
 {
 public:
-    inline LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings& vdwSettings) :
+    LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings& vdwSettings) :
         dispersionShift_(vdwSettings.dispersionShift.cpot),
         repulsionShift_(vdwSettings.repulsionShift.cpot)
     {
@@ -326,7 +326,7 @@ template<bool calculateEnergies>
 class LennardJonesCalculator<calculateEnergies, InteractionModifiers::ForceSwitch>
 {
 public:
-    inline LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings& vdwSettings) :
+    LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings& vdwSettings) :
         rSwitch_(vdwSettings.switchDistance),
         dispersionShiftC2_(vdwSettings.dispersionShift.c2),
         dispersionShiftC3_(vdwSettings.dispersionShift.c3),
@@ -486,7 +486,7 @@ template<bool calculateEnergies>
 class LennardJonesCalculator<calculateEnergies, InteractionModifiers::PotSwitch>
 {
 public:
-    inline LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings& vdwSettings) :
+    LennardJonesCalculator(const interaction_const_t::VanDerWaalsSettings& vdwSettings) :
         rSwitch_(vdwSettings.switchDistance),
         c3_(vdwSettings.switchConstants.c3),
         c4_(vdwSettings.switchConstants.c4),

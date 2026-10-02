@@ -90,9 +90,11 @@ namespace gmx { namespace boost { namespace stl_interfaces {
                 : std::true_type
             {
             };
-        }
+        }  // namespace v1_dtl
 
-    }
-}}}
+    }  // namespace v1
+}  // namespace stl_interfaces
+}  // namespace boost
+}  // namespace gmx
 
 #endif

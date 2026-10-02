@@ -264,6 +264,7 @@ struct InteractionList
      * \param[in] numAtoms Number of atoms.
      * \param[in] atoms Atoms indices.
      */
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static) false positive!
     void push_back(const int parameterType, const int numAtoms, const int* atoms)
     {
         const std::size_t oldSize = iatoms.size();

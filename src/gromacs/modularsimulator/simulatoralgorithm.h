@@ -359,7 +359,7 @@ public:
      * the integration step. It is not guaranteed to happen in any specific order
      * compared to other elements registering a pre-step scheduling function.
      */
-    void registerPreStepScheduling(SchedulingFunction schedulingFunction);
+    void registerPreStepScheduling(SchedulingFunction&& schedulingFunction);
     /*! \brief Register callback to schedule a post-step run
      *
      * This allows elements to schedule a function call after the integration step.
@@ -367,7 +367,7 @@ public:
      * the integration step. It is not guaranteed to happen in any specific order
      * compared to other elements registering a post-step scheduling function.
      */
-    void registerPostStepScheduling(SchedulingFunction schedulingFunction);
+    void registerPostStepScheduling(SchedulingFunction&& schedulingFunction);
     /*! \brief Set arbitrary data in the ModularSimulatorAlgorithmBuilder
      *
      * Allows to store arbitrary data with lifetime equal to the builder. Functionality is used
@@ -384,11 +384,11 @@ public:
     template<typename ValueType>
     std::optional<ValueType*> simulationData(const std::string& key);
     //! Register temperature / pressure control algorithm to be matched with a propagator
-    void registerTemperaturePressureControl(std::function<void(const PropagatorConnection&)> registrationFunction);
+    void registerTemperaturePressureControl(std::function<void(const PropagatorConnection&)>&& registrationFunction);
     //! Register a propagator to be used with a temperature / pressure control algorithm
-    void registerPropagator(PropagatorConnection connectionData);
+    void registerPropagator(PropagatorConnection&& connectionData);
     //! Register for callback after an update to the reference temperature
-    void registerReferenceTemperatureUpdate(ReferenceTemperatureCallback referenceTemperatureCallback);
+    void registerReferenceTemperatureUpdate(ReferenceTemperatureCallback&& referenceTemperatureCallback);
     //! Get a callback to change reference temperature
     ReferenceTemperatureCallback changeReferenceTemperatureCallback();
 

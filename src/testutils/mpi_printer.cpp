@@ -51,20 +51,20 @@
 #    include "gromacs/utility/gmxassert.h"
 
 #    define FORWARD_TO_DEFAULT_PRINTER1(MethodName, Param1Type) \
-        virtual void MethodName(const Param1Type& param1)       \
+        void MethodName(const Param1Type& param1) override      \
         {                                                       \
             if (rank_ == 0)                                     \
             {                                                   \
                 defaultPrinter_->MethodName(param1);            \
             }                                                   \
         }
-#    define FORWARD_TO_DEFAULT_PRINTER2(MethodName, Param1Type, Param2Type)  \
-        virtual void MethodName(const Param1Type& param1, Param2Type param2) \
-        {                                                                    \
-            if (rank_ == 0)                                                  \
-            {                                                                \
-                defaultPrinter_->MethodName(param1, param2);                 \
-            }                                                                \
+#    define FORWARD_TO_DEFAULT_PRINTER2(MethodName, Param1Type, Param2Type)   \
+        void MethodName(const Param1Type& param1, Param2Type param2) override \
+        {                                                                     \
+            if (rank_ == 0)                                                   \
+            {                                                                 \
+                defaultPrinter_->MethodName(param1, param2);                  \
+            }                                                                 \
         }
 
 namespace
@@ -82,14 +82,14 @@ public:
     FORWARD_TO_DEFAULT_PRINTER2(OnTestIterationStart, ::testing::UnitTest, int);
     FORWARD_TO_DEFAULT_PRINTER1(OnEnvironmentsSetUpStart, ::testing::UnitTest);
     FORWARD_TO_DEFAULT_PRINTER1(OnEnvironmentsSetUpEnd, ::testing::UnitTest);
-    FORWARD_TO_DEFAULT_PRINTER1(OnTestCaseStart, ::testing::TestCase);
+    FORWARD_TO_DEFAULT_PRINTER1(OnTestSuiteStart, ::testing::TestSuite);
     FORWARD_TO_DEFAULT_PRINTER1(OnTestStart, ::testing::TestInfo);
-    virtual void OnTestPartResult(const ::testing::TestPartResult& /*result*/)
+    void OnTestPartResult(const ::testing::TestPartResult& /*result*/) override
     {
         // Do nothing; all printing is done in OnTestEnd().
     }
-    virtual void OnTestEnd(const ::testing::TestInfo& test_info);
-    FORWARD_TO_DEFAULT_PRINTER1(OnTestCaseEnd, ::testing::TestCase);
+    void OnTestEnd(const ::testing::TestInfo& test_info) override;
+    FORWARD_TO_DEFAULT_PRINTER1(OnTestSuiteEnd, ::testing::TestSuite);
     FORWARD_TO_DEFAULT_PRINTER1(OnEnvironmentsTearDownStart, ::testing::UnitTest);
     FORWARD_TO_DEFAULT_PRINTER1(OnEnvironmentsTearDownEnd, ::testing::UnitTest);
     FORWARD_TO_DEFAULT_PRINTER2(OnTestIterationEnd, ::testing::UnitTest, int);
@@ -108,21 +108,21 @@ void MPIEventForward::OnTestEnd(const ::testing::TestInfo& test_info)
     // Serialize printing test results to stdout in rank order by
     // passing a flag in order from ranks 0 .. (n-1). Rank 0 does not
     // need to receive, rank n-1 does not need to send.
-    int timeToPrint = (0 == rank_);
-    if (!timeToPrint)
+    int timeToPrint = int(0 == rank_);
+    if (timeToPrint == 0)
     {
         MPI_Recv(&timeToPrint, 1, MPI_INT, rank_ - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 
     // Now this rank can print
-    int                          localPassed = true;
+    int                          localPassed = int(true);
     const ::testing::TestResult* result      = test_info.result();
     if (result->Failed())
     {
         // TODO: This sometimes races with the defaultPrinter_, but
         // unsure why
         printf("Test failures from rank %d:\n", rank_);
-        localPassed = false;
+        localPassed = int(false);
     }
     if (result->Failed() or result->Skipped())
     {
@@ -169,7 +169,7 @@ void MPIEventForward::OnTestEnd(const ::testing::TestInfo& test_info)
 
         if (!allPassed)
         {
-            ::testing::Test::RecordProperty("AllFailingRanks", failingRanks.str().c_str());
+            ::testing::Test::RecordProperty("AllFailingRanks", failingRanks.str());
             // This marks the current test failed, and modifies test_info
             // behind the scenes, so the default printer sees the test as
             // failed even if localPassed is true.
