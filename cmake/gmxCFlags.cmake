@@ -136,7 +136,7 @@ function(gmx_target_compile_options TARGET)
     # is choosing not to adopt a central fix - see
     # https://gitlab.kitware.com/cmake/cmake/-/work_items/18837.
     if (MSVC AND (MSVC_VERSION GREATER_EQUAL 1914))
-        target_compile_options(${TARGET} PUBLIC "/Zc:__cplusplus")
+        target_compile_options(${TARGET} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>)
     endif()
 endfunction()
 
