@@ -52,6 +52,14 @@ set(ENV{PATH} "$ENV{GITHUB_WORKSPACE}${path_separator}$ENV{PATH}")
 
 message(STATUS "Using GPU_VAR: $ENV{GPU_VAR}")
 
+# Only set the C++ standard when the job asks for one, so other jobs
+# keep testing the GROMACS default.
+set(cxx_standard_option)
+if (NOT "x$ENV{CXX_STANDARD}" STREQUAL "x")
+  message(STATUS "Using CXX_STANDARD: $ENV{CXX_STANDARD}")
+  set(cxx_standard_option -D CMAKE_CXX_STANDARD=$ENV{CXX_STANDARD})
+endif()
+
 execute_process(
   COMMAND cmake
     -S .
@@ -68,6 +76,7 @@ execute_process(
     -D GMX_FFT_LIBRARY=FFTPACK
     -D GMX_OPENMP=$ENV{OPENMP_VAR}
     -D REGRESSIONTEST_DOWNLOAD=ON
+    ${cxx_standard_option}
   RESULT_VARIABLE result
 )
 if (NOT result EQUAL 0)

@@ -29,6 +29,15 @@ jobs:
             openmp_var: "On"
           }
         - {
+            name: "Windows MSVC 2022 C++20", artifact: "Windows-MSVC-2022-cxx-20.7z",
+            os: windows-2022,
+            cc: "cl", cxx: "cl",
+            environment_script: "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat",
+            gpu_var: "Off",
+            openmp_var: "On",
+            cxx_standard: "20"
+          }
+        - {
             name: "Windows ARM64 MSVC 2026", artifact: "Windows-ARM64-MSVC-2026.7z",
             os: windows-11-vs2026-arm,
             cc: "cl", cxx: "cl",
@@ -62,6 +71,7 @@ jobs:
       OPENMP_VAR: ${{ matrix.config.openmp_var }}
       GPU_VAR: ${{ matrix.config.gpu_var }}
       ENVIRONMENT_SCRIPT: ${{ matrix.config.environment_script }}
+      CXX_STANDARD: ${{ matrix.config.cxx_standard }} # Empty means the GROMACS default
 
     steps:
     - uses: actions/checkout@v6
