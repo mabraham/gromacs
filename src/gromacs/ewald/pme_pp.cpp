@@ -509,6 +509,7 @@ void PmePpComm::sendCycleCountersAndStopConditionRequest()
                   &cycleCountersRequest_);
         MPI_Send(&cnb, sizeof(cnb), MPI_BYTE, rankOfPartnerPmeRank_, eCommType_CNB, comm_.comm());
 #else
+        GMX_UNUSED_VALUE(cycleCountersRequest_);
         GMX_UNUSED_VALUE(cnb);
 #endif
     }

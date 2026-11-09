@@ -455,8 +455,11 @@ void GpuHaloExchange::Impl::communicateHaloDataGpuAwareMpi(Float3* sendPtr,
     MPI_Wait(&request, MPI_STATUS_IGNORE);
 #else
     GMX_UNUSED_VALUE(sendPtr);
+    GMX_UNUSED_VALUE(sendOffset);
     GMX_UNUSED_VALUE(sendRank);
+    GMX_UNUSED_VALUE(sendSize);
     GMX_UNUSED_VALUE(recvPtr);
+    GMX_UNUSED_VALUE(recvOffset);
     GMX_UNUSED_VALUE(recvSize);
     GMX_UNUSED_VALUE(recvRank);
 #endif
