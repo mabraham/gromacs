@@ -144,6 +144,7 @@ void PmeForceSenderGpu::Impl::setForceSendBuffer(DeviceBuffer<Float3> d_f)
 #else
             GMX_UNUSED_VALUE(i);
             GMX_UNUSED_VALUE(d_f);
+            GMX_UNUSED_VALUE(comm_);
 #endif
             i++;
         }

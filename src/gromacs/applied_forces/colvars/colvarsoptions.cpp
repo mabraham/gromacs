@@ -96,6 +96,7 @@ const std::string c_colvarsSeedTag_     = "seed";
 //! \}
 
 
+#if GMX_HAVE_COLVARS
 /*! \brief This tags for parameters which will be generated during grompp
  * and stored into *.tpr file via KVT
  */
@@ -106,6 +107,7 @@ const std::string c_startingCoordsTag_ = "startingCoords";
 const std::string c_ensTempTag_        = "ensTemp";
 
 //! \}
+#endif
 
 } // namespace
 

@@ -171,7 +171,12 @@ void PmePpCommGpu::Impl::reinit(ArrayRef<RVec> pmeCpuForceReceiveBuffer)
                  comm_,
                  MPI_STATUS_IGNORE);
     }
+    else
 #endif
+    {
+        GMX_UNUSED_VALUE(comm_);
+        GMX_UNUSED_VALUE(pmeRank_);
+    }
 }
 
 void PmePpCommGpu::Impl::receiveForceFromPmeDirectGpu(bool receivePmeForceToGpu)

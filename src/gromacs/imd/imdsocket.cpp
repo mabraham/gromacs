@@ -262,13 +262,9 @@ IMDSocket* imdsock_accept(IMDSocket* sock)
 
 int imdsock_getport(IMDSocket* sock, int* port)
 {
-    int ret;
 #if GMX_IMD
-    socklen_t len;
-
-
-    len = sizeof(struct sockaddr_in);
-    ret = getsockname(sock->sockfd, reinterpret_cast<struct sockaddr*>(&(sock->address)), &len);
+    socklen_t len = sizeof(struct sockaddr_in);
+    int ret = getsockname(sock->sockfd, reinterpret_cast<struct sockaddr*>(&(sock->address)), &len);
     if (ret)
     {
         fprintf(stderr, "%s getsockname failed with error %d.\n", IMDstr, ret);
@@ -278,14 +274,12 @@ int imdsock_getport(IMDSocket* sock, int* port)
     {
         *port = ntohs(sock->address.sin_port);
     }
+    return ret;
 #else
     GMX_UNUSED_VALUE(port);
     GMX_UNUSED_VALUE(sock);
     gmx_incons("imdsock_getport called without IMD support.");
-    ret = -1;
 #endif
-
-    return ret;
 }
 
 

@@ -47,6 +47,7 @@
 
 #include "gromacs/gpu_utils/device_stream.h"
 #include "gromacs/gpu_utils/gpueventsynchronizer.h"
+#include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/gmxmpi.h"
 
 #if GMX_HAVE_GPU_GRAPH_SUPPORT
@@ -132,7 +133,7 @@ void MdGpuGraph::Impl::enqueueEventFromAllPpRanksToRank0Stream(GpuEventSynchroni
         else if (ppRank_ == 0)
         {
             // rank 0 enqueues received event
-            GpuEventSynchronizer* eventToEnqueue;
+            GpuEventSynchronizer* eventToEnqueue = nullptr;
 #    if GMX_MPI
             MPI_Recv(&eventToEnqueue,
                      sizeof(GpuEventSynchronizer*), // NOLINT(bugprone-sizeof-expression)
@@ -141,6 +142,8 @@ void MdGpuGraph::Impl::enqueueEventFromAllPpRanksToRank0Stream(GpuEventSynchroni
                      0,
                      mpiComm_,
                      MPI_STATUS_IGNORE);
+#    else
+            GMX_RELEASE_ASSERT(false, "Only one PP rank is possible without MPI");
 #    endif
             eventToEnqueue->enqueueWaitEvent(stream);
         }
