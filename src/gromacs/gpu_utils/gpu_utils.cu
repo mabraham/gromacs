@@ -71,7 +71,7 @@ static const bool cudaProfilerRun =
         ((std::getenv("NVPROF_ID") != nullptr) || (std::getenv("NSYS_PROFILING_SESSION_ID") != nullptr)
          || (std::getenv("NV_NSIGHT_INJECTION_TRANSPORT_TYPE") != nullptr));
 
-bool isHostMemoryPinned(const void* h_ptr)
+bool isHostMemoryPinned(const void* h_ptr, const DeviceContext* /*deviceContext*/)
 {
     cudaPointerAttributes memoryAttributes;
     cudaError_t           stat = cudaPointerGetAttributes(&memoryAttributes, h_ptr);

@@ -33,7 +33,8 @@
  */
 /*! \internal \file
  * \brief Implements gmx::HostAllocationPolicy for allocating memory
- * suitable for e.g. GPU transfers on CUDA.
+ * suitable for e.g. GPU transfers, including the pinned allocation
+ * for each GPU backend.
  *
  * \author Mark Abraham <mark.j.abraham@gmail.com>
  */
@@ -41,9 +42,21 @@
 
 #include "hostallocator.h"
 
+#include "config.h"
+
+#include <cstddef>
+
+#if GMX_GPU_CUDA
+#    include "gromacs/gpu_utils/cudautils.cuh"
+#elif GMX_GPU_HIP
+#    include "gromacs/gpu_utils/hiputils.h"
+#elif GMX_GPU_SYCL
+#    include "gromacs/gpu_utils/gmxsycl.h"
+#endif
+
 #include "gromacs/gpu_utils/device_context.h"
 #include "gromacs/gpu_utils/device_stream_manager.h"
-#include "gromacs/gpu_utils/pmalloc.h"
+#include "gromacs/gpu_utils/gpu_utils.h"
 #include "gromacs/utility/alignedallocator.h"
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/stringutil.h"
@@ -75,16 +88,33 @@ std::size_t HostAllocationPolicy::alignment() const noexcept
 
 void* HostAllocationPolicy::malloc(std::size_t bytes) const noexcept
 {
-    if (pinningPolicy_ == PinningPolicy::PinnedIfSupported)
-    {
-        void* p;
-        pmalloc(&p, bytes, &context());
-        return p;
-    }
-    else
+    if (pinningPolicy_ != PinningPolicy::PinnedIfSupported)
     {
         return AlignedAllocationPolicy::malloc(bytes);
     }
+    if (bytes == 0)
+    {
+        return nullptr;
+    }
+    // Without a GPU backend that pins, the memory is merely page aligned.
+    [[maybe_unused]] const DeviceContext& deviceContext = context();
+#if GMX_GPU_CUDA
+    ensureNoPendingDeviceError("Could not allocate page-locked memory.");
+    void*             p    = nullptr;
+    const cudaError_t stat = cudaMallocHost(&p, bytes, cudaHostAllocDefault);
+    CU_RET_ERR(stat, formatString("cudaMallocHost of size %zu bytes failed", bytes));
+    return p;
+#elif GMX_GPU_HIP
+    ensureNoPendingDeviceError("Could not allocate page-locked memory.");
+    void*            p    = nullptr;
+    const hipError_t stat = hipHostMalloc(&p, bytes, hipHostMallocDefault);
+    checkDeviceError(stat, formatString("hipHostMalloc of size %zu bytes failed", bytes));
+    return p;
+#elif GMX_GPU_SYCL
+    return sycl::malloc_host<std::byte>(bytes, deviceContext.context());
+#else
+    return PageAlignedAllocationPolicy::malloc(bytes);
+#endif
 }
 
 void HostAllocationPolicy::free(void* buffer) const noexcept
@@ -94,14 +124,25 @@ void HostAllocationPolicy::free(void* buffer) const noexcept
         // Nothing to do
         return;
     }
-    if (pinningPolicy_ == PinningPolicy::PinnedIfSupported)
-    {
-        pfree(buffer, &context());
-    }
-    else
+    if (pinningPolicy_ != PinningPolicy::PinnedIfSupported)
     {
         AlignedAllocationPolicy::free(buffer);
+        return;
     }
+    [[maybe_unused]] const DeviceContext& deviceContext = context();
+#if GMX_GPU_CUDA
+    ensureNoPendingDeviceError("Could not free page-locked memory.");
+    CU_RET_ERR(cudaFreeHost(buffer), "cudaFreeHost failed");
+#elif GMX_GPU_HIP
+    ensureNoPendingDeviceError("Could not free page-locked memory.");
+    checkDeviceError(hipHostFree(buffer), "hipHostFree failed");
+#elif GMX_GPU_SYCL
+    GMX_ASSERT(sycl::get_pointer_type(buffer, deviceContext.context()) == sycl::usm::alloc::host,
+               "Freeing a buffer that is not pinned, or with the wrong context");
+    sycl::free(buffer, deviceContext.context());
+#else
+    PageAlignedAllocationPolicy::free(buffer);
+#endif
 }
 
 bool HostAllocationPolicy::operator==(const HostAllocationPolicy& b) const
@@ -133,3 +174,19 @@ HostAllocationPolicy makeHostAllocationPolicy(const bool                 pinBuff
 }
 
 } // namespace gmx
+
+#if !GMX_GPU_CUDA && !GMX_GPU_HIP
+// CUDA and HIP implement this in gpu_utils
+bool isHostMemoryPinned(const void* h_ptr, const DeviceContext* deviceContext)
+{
+#    if GMX_GPU_SYCL
+    GMX_RELEASE_ASSERT(deviceContext != nullptr,
+                       "SYCL needs a context to check whether memory is pinned");
+    return sycl::get_pointer_type(h_ptr, deviceContext->context()) == sycl::usm::alloc::host;
+#    else
+    GMX_UNUSED_VALUE(h_ptr);
+    GMX_UNUSED_VALUE(deviceContext);
+    return false;
+#    endif
+}
+#endif

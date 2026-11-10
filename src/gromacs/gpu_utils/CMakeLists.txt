@@ -51,7 +51,6 @@ if(GMX_GPU_OPENCL)
         device_context_ocl.cpp
         device_stream_ocl.cpp
         gpu_utils_impl.cpp
-        pmalloc.cpp
         ocl_compiler.cpp
         ocl_caching.cpp
         oclutils.cpp
@@ -61,7 +60,6 @@ elseif(GMX_GPU_CUDA)
         device_context.cpp
         device_stream.cu
         gpu_utils.cu
-        pmalloc.cu
         )
     _gmx_add_files_to_property(CUDA_SOURCES
         binary_information.cpp
@@ -74,14 +72,12 @@ elseif(GMX_GPU_HIP)
         device_context.cpp
         device_stream_hip.cpp
         gpu_utils_hip.cpp
-        pmalloc_hip.cpp
         )
     _gmx_add_files_to_property(HIP_SOURCES
         binary_information.cpp
         device_stream_hip.cpp
         gpu_utils_hip.cpp
         hostallocator.cpp
-        pmalloc_hip.cpp
         )
 elseif(GMX_GPU_SYCL)
     gmx_add_libgromacs_sources(
@@ -89,7 +85,6 @@ elseif(GMX_GPU_SYCL)
         device_context_sycl.cpp
         device_stream_sycl.cpp
         gpu_utils_impl.cpp
-        pmalloc_sycl.cpp
         )
     _gmx_add_files_to_property(SYCL_SOURCES
         binary_information.cpp
@@ -98,14 +93,12 @@ elseif(GMX_GPU_SYCL)
         device_stream_manager.cpp
         device_stream_sycl.cpp
         hostallocator.cpp
-        pmalloc_sycl.cpp
         )
 else()
     gmx_add_libgromacs_sources(
         device_context.cpp
         device_stream.cpp
         gpu_utils_impl.cpp
-        pmalloc.cpp
     )
 endif()
 

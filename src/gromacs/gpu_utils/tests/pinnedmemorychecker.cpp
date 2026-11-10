@@ -48,7 +48,6 @@
 #include "gromacs/gpu_utils/device_context.h"
 #include "gromacs/gpu_utils/gpu_utils.h"
 #include "gromacs/gpu_utils/hostallocator.h"
-#include "gromacs/gpu_utils/pmalloc.h"
 #include "gromacs/utility/real.h"
 
 #include "testutils/test_hardware_environment.h"
@@ -81,7 +80,7 @@ TEST_F(PinnedMemoryCheckerTest, DefaultContainerIsRecognized)
 
         HostVector<real> dummy(3, 1.5, HostAllocationPolicy(deviceContext));
         changePinningPolicy(&dummy, PinningPolicy::CannotBePinned);
-        EXPECT_FALSE(isHostMemoryPinned(dummy.data()));
+        EXPECT_FALSE(isHostMemoryPinned(dummy.data(), &deviceContext));
     }
 }
 
@@ -95,7 +94,7 @@ TEST_F(PinnedMemoryCheckerTest, PinnedContainerIsRecognized)
 
         HostVector<real> dummy(3, 1.5, HostAllocationPolicy(deviceContext));
         changePinningPolicy(&dummy, PinningPolicy::PinnedIfSupported);
-        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy.data()));
+        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy.data(), &deviceContext));
     }
 }
 
@@ -109,11 +108,13 @@ TEST_F(PinnedMemoryCheckerTest, PinningChangesAreRecognized)
 
         HostAllocationPolicy hostAllocationPolicy{ deviceContext, PinningPolicy::PinnedIfSupported };
         HostVector<real> dummy(3, 1.5, hostAllocationPolicy);
-        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy.data())) << "memory starts pinned";
+        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy.data(), &deviceContext))
+                << "memory starts pinned";
         changePinningPolicy(&dummy, PinningPolicy::CannotBePinned);
-        EXPECT_FALSE(isHostMemoryPinned(dummy.data())) << "memory is now unpinned";
+        EXPECT_FALSE(isHostMemoryPinned(dummy.data(), &deviceContext)) << "memory is now unpinned";
         changePinningPolicy(&dummy, PinningPolicy::PinnedIfSupported);
-        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy.data())) << "memory is pinned again";
+        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy.data(), &deviceContext))
+                << "memory is pinned again";
     }
 }
 
@@ -121,8 +122,12 @@ TEST_F(PinnedMemoryCheckerTest, DefaultCBufferIsRecognized)
 {
     if (getTestHardwareEnvironment()->hasCompatibleDevices())
     {
+        const TestDevice* testDevice = getTestHardwareEnvironment()->getTestDeviceList()[0].get();
+        const DeviceContext& deviceContext = testDevice->deviceContext();
+        deviceContext.activate();
+
         std::vector<real> dummy(3);
-        EXPECT_FALSE(isHostMemoryPinned(dummy.data()));
+        EXPECT_FALSE(isHostMemoryPinned(dummy.data(), &deviceContext));
     }
 }
 
@@ -130,10 +135,14 @@ TEST_F(PinnedMemoryCheckerTest, PinnedCBufferIsRecognized)
 {
     if (getTestHardwareEnvironment()->hasCompatibleDevices())
     {
-        real* dummy = nullptr;
-        pmalloc(reinterpret_cast<void**>(&dummy), 3 * sizeof(real));
-        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy));
-        pfree(dummy);
+        const TestDevice* testDevice = getTestHardwareEnvironment()->getTestDeviceList()[0].get();
+        const DeviceContext& deviceContext = testDevice->deviceContext();
+        deviceContext.activate();
+
+        HostAllocationPolicy policy{ deviceContext, PinningPolicy::PinnedIfSupported };
+        void*                dummy = policy.malloc(3 * sizeof(real));
+        EXPECT_EQ(!GMX_GPU_OPENCL, isHostMemoryPinned(dummy, &deviceContext));
+        policy.free(dummy);
     }
 }
 

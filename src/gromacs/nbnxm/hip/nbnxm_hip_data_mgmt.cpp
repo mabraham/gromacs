@@ -54,7 +54,6 @@
 
 // TODO Remove this comment when the above order issue is resolved
 #include "gromacs/gpu_utils/device_context.h"
-#include "gromacs/gpu_utils/pmalloc.h"
 #include "gromacs/hardware/device_information.h"
 #include "gromacs/hardware/device_management.h"
 #include "gromacs/nbnxm/atomdata.h"

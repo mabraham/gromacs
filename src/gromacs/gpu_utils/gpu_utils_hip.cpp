@@ -48,7 +48,7 @@
 
 #include "gpu_utils.h"
 
-bool isHostMemoryPinned(const void* h_ptr)
+bool isHostMemoryPinned(const void* h_ptr, const DeviceContext* /*deviceContext*/)
 {
     hipPointerAttribute_t memoryAttributes;
     hipError_t            stat = hipPointerGetAttributes(&memoryAttributes, h_ptr);

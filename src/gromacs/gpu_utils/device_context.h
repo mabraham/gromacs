@@ -54,7 +54,6 @@
 #    include "gromacs/gpu_utils/gmxsycl.h"
 #endif
 
-#include "gromacs/gpu_utils/pmalloc.h"
 #include "gromacs/hardware/device_management.h"
 #include "gromacs/utility/classhelpers.h"
 
@@ -74,11 +73,7 @@ public:
     const DeviceInformation& deviceInfo() const { return deviceInfo_; }
 
     //! Activate the device
-    void activate() const
-    {
-        setActiveDevice(deviceInfo_);
-        pmallocSetDefaultDeviceContext(this);
-    }
+    void activate() const { setActiveDevice(deviceInfo_); }
 
 private:
     //! A reference to the device information used upon context creation

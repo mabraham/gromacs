@@ -44,6 +44,8 @@
 
 #include "gromacs/utility/arrayref.h"
 
+class DeviceContext;
+
 namespace gmx
 {
 class MDLogger;
@@ -104,8 +106,11 @@ void resetGpuProfiler();
  */
 void stopGpuProfiler();
 
-//! Tells whether the host buffer was pinned for non-blocking transfers. Only implemented for CUDA.
-bool isHostMemoryPinned(const void* h_ptr);
+/*! \brief Tells whether the host buffer was pinned for non-blocking transfers.
+ *
+ * Implemented for CUDA, HIP and SYCL. SYCL needs \c deviceContext, the
+ * context the buffer was allocated in; other backends ignore it. */
+bool isHostMemoryPinned(const void* h_ptr, const DeviceContext* deviceContext = nullptr);
 
 /*! \brief Enable peer access between GPUs where supported
  * \param[in] gpuIdsToUse   List of GPU IDs in use
