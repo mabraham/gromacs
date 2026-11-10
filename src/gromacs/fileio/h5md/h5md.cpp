@@ -188,6 +188,106 @@ static void setupUnitsModule(const hid_t modulesGroup, const char* unitSystem = 
     setAttribute(group, "system", unitSystem);
     setAttribute(group, c_urlAttributeKey, url);
 }
+
+/*! \brief Return the number of particles for the block at \c /particles/selectionName.
+ *
+ * \note Does not check consistency of trajectory data sets in the block.
+ *
+ * \param[in] fileid        Handle to H5md file.
+ * \param[in] selectionName Name of particle group.
+ *
+ * \returns The number of particles of trajectory data inside the block,
+ * or std::nullopt if no trajectory data exists for the block.
+ *
+ * \throws H5mdError if there was an error reading the number of particles
+ * from an existing data set.
+ */
+static std::optional<int64_t> calcNumParticlesForSelection(const hid_t fileid, const char* selectionName)
+{
+    const auto [particlesGroup, particlesGroupGuard] =
+            makeH5mdGroupGuard(openGroup(fileid, c_particlesGroupPath));
+    const auto [selectionGroup, selectionGroupGuard] =
+            makeH5mdGroupGuard(openGroup(particlesGroup, selectionName));
+
+    for (const char* dataGroupName : { c_positionGroupName, c_velocityGroupName, c_forceGroupName })
+    {
+        const std::string valueDataSetPath = joinStrings({ dataGroupName, c_valueName }, "/");
+        if (objectExists(selectionGroup, valueDataSetPath.c_str()))
+        {
+            const H5mdFrameDataSet<RVec> valueDataSet(selectionGroup, valueDataSetPath.c_str());
+            GMX_H5MD_THROW_UPON_ERROR(
+                    valueDataSet.frameDims().empty(),
+                    formatString(
+                            "Incorrect dimensions for data set at '%s': must not be 0-dimensional",
+                            joinStrings({ c_particlesGroupPath, selectionName, dataGroupName, c_valueName },
+                                        "/")
+                                    .c_str()));
+            return valueDataSet.frameDims()[0];
+        }
+    }
+    return std::nullopt;
+}
+
+/*! \brief Return the PbcType for the block at \c /particles/selectionName/box.
+ *
+ * \param[in] fileid        Handle to H5md file.
+ * \param[in] selectionName Name of particle group.
+ *
+ * \returns The PbcType or std::nullopt if it does not exist.
+ *
+ * \throws H5mdError if the simulation box group at \c /particles/selectionName/box
+ * exists but the PbcType could not be determined from it.
+ */
+static std::optional<PbcType> getPbcForSelection(const hid_t fileid, const char* selectionName)
+{
+    const auto [particlesGroup, particlesGroupGuard] =
+            makeH5mdGroupGuard(openGroup(fileid, c_particlesGroupPath));
+    const auto [selectionGroup, selectionGroupGuard] =
+            makeH5mdGroupGuard(openGroup(particlesGroup, selectionName));
+
+    if (!objectExists(selectionGroup, c_boxGroupName))
+    {
+        return std::nullopt;
+    }
+    const auto [boxGroup, boxGroupGuard] = makeH5mdGroupGuard(openGroup(selectionGroup, c_boxGroupName));
+
+    const std::optional<std::vector<std::string>> boundary =
+            getAttributeVector<std::string>(boxGroup, c_boxBoundaryAttributeKey);
+    GMX_H5MD_THROW_UPON_ERROR(!boundary.has_value(),
+                              formatString("Cannot read periodicity for group '%s': required "
+                                           "'boundary' attribute does not exist",
+                                           getHandlePath(boxGroup).value_or("<unknown_path>").c_str()));
+
+    const std::vector<std::string>& pbc = boundary.value();
+    GMX_H5MD_THROW_UPON_ERROR(
+            pbc.size() != DIM,
+            formatString("Cannot read periodicity for group '%s': required 'boundary' "
+                         "attribute must have 3 values for periodicity",
+                         getHandlePath(boxGroup).value_or("<unknown_path>").c_str()));
+    constexpr char periodicValue[] = "periodic";
+    constexpr char noneValue[]     = "none";
+
+    if (pbc[XX] == periodicValue && pbc[YY] == periodicValue && pbc[ZZ] == periodicValue)
+    {
+        return PbcType::Xyz;
+    }
+    else if (pbc[XX] == periodicValue && pbc[YY] == periodicValue && pbc[ZZ] == noneValue)
+    {
+        return PbcType::XY;
+    }
+    else if (pbc[XX] == noneValue && pbc[YY] == noneValue && pbc[ZZ] == noneValue)
+    {
+        return PbcType::No;
+    }
+    else
+    {
+        GMX_THROW(
+                H5mdError(formatString("Cannot read periodicity for group '%s': boundary attribute "
+                                       "does not map to GROMACS PBC types",
+                                       getHandlePath(boxGroup).value_or("<unknown path>").c_str())));
+    }
+}
+
 } // namespace
 #endif // GMX_USE_HDF5
 
@@ -321,13 +421,14 @@ void H5md::flush()
  *
  * \warning Must be called after the position group has been set up.
  *
- * \param[in]  selectionGroup Handle to selection group inside /particles.
- * \param[out] blockBuilder   Builder to assign the simulation box data set to.
+ * \param[in]  fileid        Handle to H5md file.
+ * \param[in]  groupName     Name of particle group.
+ * \param[out] particleBlock Particle block to create box data set for.
  *
  * \throws H5mdError if there was an error setting up the links to the position
  * step or time data sets.
  */
-static void setupSimulationBoxDataSet(const hid_t selectionGroup, H5mdParticleBlockBuilder& blockBuilder)
+static void setupSimulationBoxDataSet(const hid_t fileid, const char* groupName, H5mdParticleBlock* particleBlock)
 {
     // TODO: Per the H5md spec we should write the box only once if it is constant.
     // At the time of writing we don't have access to the box values when the H5md
@@ -340,14 +441,17 @@ static void setupSimulationBoxDataSet(const hid_t selectionGroup, H5mdParticleBl
     // write the full matrix.
     // const bool boxIsCubic = (box[XX][YY] == 0.0) && (box[XX][ZZ] == 0.0) && (box[YY][XX] == 0.0)
     //                         && (box[YY][ZZ] == 0.0) && (box[ZZ][XX] == 0.0) && (box[ZZ][YY] == 0.0);
+    const std::string selectionGroupPath = joinStrings({ c_particlesGroupPath, groupName }, "/");
+    const auto [selectionGroup, selectionGroupGuard] =
+            makeH5mdGroupGuard(openGroup(fileid, selectionGroupPath.c_str()));
     const auto [boxGroup, boxGroupGuard] = makeH5mdGroupGuard(openGroup(selectionGroup, c_boxGroupName));
     const auto [edgesGroup, edgesGroupGuard] = makeH5mdGroupGuard(createGroup(boxGroup, c_boxSizeName));
 
     // Matrices are stored as real[DIM][DIM], which is the data set frame dimension
-    blockBuilder.setBox(H5mdFrameDataSetBuilder<real>(edgesGroup, c_valueName)
-                                .withFrameDimension({ DIM, DIM })
-                                .withUnit(c_positionUnit)
-                                .build());
+    particleBlock->addBox(H5mdFrameDataSetBuilder<real>(edgesGroup, c_valueName)
+                                  .withFrameDimension({ DIM, DIM })
+                                  .withUnit(c_positionUnit)
+                                  .build());
 
     const auto [positionGroup, positionGroupGuard] =
             makeH5mdGroupGuard(openGroup(selectionGroup, c_positionGroupName));
@@ -362,8 +466,6 @@ static void setupSimulationBoxDataSet(const hid_t selectionGroup, H5mdParticleBl
 /*! \brief Create the simulation box group inside \p selectionGroup.
  *
  * The simulation box attributes "dimension" and "boundary" are written to the box group.
- *
- * \warning Must be called after the position group has been set up.
  *
  * \param[in] selectionGroup Handle to group in which to create the box group.
  * \param[in] inputRecord    Simulation input record.
@@ -397,45 +499,18 @@ void H5md::setupParticleBlockForGroup(const gmx_mtop_t&   topology,
                                       const t_inputrec&   inputRecord)
 {
 #if GMX_USE_HDF5
-    const OutputControl& outputControl = inputRecord.outputControl;
-
     const auto [particlesGroup, particlesGroupGuard] =
             makeH5mdGroupGuard(createGroup(file_, c_particlesGroupPath));
     const auto [selectionGroup, selectionGroupGuard] =
             makeH5mdGroupGuard(createGroup(particlesGroup, selectionName.c_str()));
     setupSimulationBoxGroup(selectionGroup, inputRecord);
 
-    const hsize_t numAtoms = selectionIndices.empty() ? topology.natoms : selectionIndices.size();
+    const int64_t numParticles = selectionIndices.empty() ? topology.natoms : selectionIndices.size();
     GMX_H5MD_THROW_UPON_ERROR(
-            numAtoms == 0,
+            numParticles == 0,
             formatString("Cannot setup particle group '%s': no atoms in group", selectionName.c_str()));
 
-    const DataSetDims frameDims = numAtoms > 0 ? DataSetDims{ numAtoms } : DataSetDims{};
-
-    H5mdParticleBlockBuilder blockBuilder;
-    if (outputControl.nstxout > 0)
-    {
-        blockBuilder.setPosition(H5mdTimeDataBlockBuilder<RVec>(selectionGroup, c_positionGroupName)
-                                         .withFrameDimension(frameDims)
-                                         .withUnit(c_positionUnit)
-                                         .build());
-        setupSimulationBoxDataSet(selectionGroup, blockBuilder);
-    }
-    if (outputControl.nstvout > 0)
-    {
-        blockBuilder.setVelocity(H5mdTimeDataBlockBuilder<RVec>(selectionGroup, c_velocityGroupName)
-                                         .withFrameDimension(frameDims)
-                                         .withUnit(c_velocityUnit)
-                                         .build());
-    }
-    if (outputControl.nstfout > 0)
-    {
-        blockBuilder.setForce(H5mdTimeDataBlockBuilder<RVec>(selectionGroup, c_forceGroupName)
-                                      .withFrameDimension(frameDims)
-                                      .withUnit(c_forceUnit)
-                                      .build());
-    }
-    particleBlocks_.insert({ selectionName, TrajectoryReadCursor(blockBuilder.build()) });
+    particleBlocks_.insert({ selectionName, TrajectoryReadCursor(H5mdParticleBlock(numParticles)) });
 #else
     GMX_UNUSED_VALUE(topology);
     GMX_UNUSED_VALUE(selectionIndices);
@@ -504,10 +579,7 @@ void H5md::setupModules()
 void H5md::setupFileFromInput(const gmx_mtop_t& topology, const t_inputrec& inputRecord)
 {
 #if GMX_USE_HDF5
-    setupModules();
-    setupParticleBlockForGroup(topology, {}, c_fullSystemGroupName, inputRecord);
-    setupGromacsTopology(topology);
-    setupBondConnectivity(topology);
+    setupFileFromInput(topology, inputRecord, {}, c_fullSystemGroupName);
 #else
     GMX_UNUSED_VALUE(topology);
     GMX_UNUSED_VALUE(inputRecord);
@@ -515,25 +587,69 @@ void H5md::setupFileFromInput(const gmx_mtop_t& topology, const t_inputrec& inpu
 }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+void H5md::setupFileFromInput(const gmx_mtop_t&   topology,
+                              const t_inputrec&   inputRecord,
+                              ArrayRef<const int> selectionInds,
+                              const char*         selectionName)
+{
+#if GMX_USE_HDF5
+    setupModules();
+    setupParticleBlockForGroup(topology, selectionInds, selectionName, inputRecord);
+    setupGromacsTopology(topology);
+    setupBondConnectivity(topology);
+#else
+    GMX_UNUSED_VALUE(topology);
+    GMX_UNUSED_VALUE(inputRecord);
+    GMX_UNUSED_VALUE(selectionInds);
+    GMX_UNUSED_VALUE(selectionName);
+#endif
+}
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+void H5md::setupFromOtherFile(const H5md& other, const ArrayRef<const int> selectionInds, const char* selectionName)
+{
+#if GMX_USE_HDF5
+    const std::optional<int64_t> numParticles =
+            calcNumParticlesForSelection(other.fileid(), selectionName);
+    GMX_H5MD_THROW_UPON_ERROR(!numParticles.has_value(),
+                              formatString("Cannot read number of particles from input H5MD file"));
+    gmx_mtop_t topology;
+    topology.natoms = numParticles.value();
+
+    const std::optional<PbcType> pbcType = getPbcForSelection(other.fileid(), selectionName);
+    GMX_H5MD_THROW_UPON_ERROR(!pbcType.has_value(), "Cannot read PbcType from input H5MD file");
+    t_inputrec inputRecord;
+    inputRecord.pbcType = pbcType.value();
+
+    // NOTE: Only copy over the topology data if the new file contains data
+    // for the same number of particles. Until we figure out how to deal with
+    // sub group selections we should ensure that the topology represents all
+    // trajectory data.
+    const bool copyTopology = selectionInds.empty() || numParticles.value() == gmx::ssize(selectionInds);
+    copyMetaDataFromFile(other, copyTopology);
+    setupParticleBlockForGroup(topology, selectionInds, selectionName, inputRecord);
+#else
+    GMX_UNUSED_VALUE(other);
+    GMX_UNUSED_VALUE(selectionInds);
+    GMX_UNUSED_VALUE(selectionName);
+#endif
+}
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 void H5md::setupParticleBlockForGroupFromExistingFile(const std::string& selectionName,
                                                       const std::optional<int64_t> restartingFromStep,
-                                                      const std::optional<int64_t> expectedNumParticles)
+                                                      const int64_t numParticles)
 {
 #if GMX_USE_HDF5
     const auto [particlesGroup, particlesGroupGuard] =
             makeH5mdGroupGuard(openGroup(file_, c_particlesGroupPath));
-    GMX_H5MD_THROW_UPON_INVALID_HID(particlesGroup, "H5md trajectory file has no /particles group");
     const auto [selectionGroup, selectionGroupGuard] =
             makeH5mdGroupGuard(openGroup(particlesGroup, selectionName.c_str()));
-    GMX_H5MD_THROW_UPON_INVALID_HID(selectionGroup, "No trajectory data found for system group");
 
-    H5mdParticleBlockBuilder blockBuilder;
-
-    // We don't have access to t_inputrec from the trajectory file opening framework,
-    // so open all available data sets (opening handles only is cheap).
+    H5mdParticleBlock particleBlock(numParticles);
     if (objectExists(selectionGroup, c_positionGroupName))
     {
-        blockBuilder.setPosition(H5mdTimeDataBlock<RVec>(selectionGroup, c_positionGroupName));
+        particleBlock.addPosition(H5mdTimeDataBlock<RVec>(selectionGroup, c_positionGroupName));
 
         // Right now we always write the box size for every position frame
         // and thus must always find a corresponding data set here.
@@ -544,38 +660,28 @@ void H5md::setupParticleBlockForGroupFromExistingFile(const std::string& selecti
         const std::string boxSizeGroupPath = joinStrings({ c_boxGroupName, c_boxSizeName }, "/");
         const auto [boxSizeGroup, boxSizeGroupGuard] =
                 makeH5mdGroupGuard(openGroup(selectionGroup, boxSizeGroupPath.c_str()));
-        blockBuilder.setBox(H5mdFrameDataSet<real>(boxSizeGroup, c_valueName));
+        particleBlock.addBox(H5mdFrameDataSet<real>(boxSizeGroup, c_valueName));
     }
     if (objectExists(selectionGroup, c_velocityGroupName))
     {
-        blockBuilder.setVelocity(H5mdTimeDataBlock<RVec>(selectionGroup, c_velocityGroupName));
+        particleBlock.addVelocity(H5mdTimeDataBlock<RVec>(selectionGroup, c_velocityGroupName));
     }
     if (objectExists(selectionGroup, c_forceGroupName))
     {
-        blockBuilder.setForce(H5mdTimeDataBlock<RVec>(selectionGroup, c_forceGroupName));
+        particleBlock.addForce(H5mdTimeDataBlock<RVec>(selectionGroup, c_forceGroupName));
     }
-    particleBlocks_.insert({ selectionName, TrajectoryReadCursor(blockBuilder.build()) });
 
     if (restartingFromStep.has_value())
     {
-        particleBlocks_.at(selectionName).block().trimDataSetsFromStep(restartingFromStep.value());
+        particleBlock.trimDataSetsFromStep(restartingFromStep.value());
     }
 
-    if (expectedNumParticles.has_value())
-    {
-        const int64_t numParticlesInBlock = particleBlocks_.at(selectionName).block().numParticles();
-        GMX_H5MD_THROW_UPON_ERROR(
-                expectedNumParticles.value() != numParticlesInBlock,
-                formatString(
-                        "System contains %lld atoms but the H5md file is set up for %lld atoms",
-                        static_cast<long long>(expectedNumParticles.value()),
-                        static_cast<long long>(numParticlesInBlock)));
-    }
+    particleBlocks_.insert({ selectionName, TrajectoryReadCursor(std::move(particleBlock)) });
 
 #else
     GMX_UNUSED_VALUE(selectionName);
+    GMX_UNUSED_VALUE(numParticles);
     GMX_UNUSED_VALUE(restartingFromStep);
-    GMX_UNUSED_VALUE(expectedNumParticles);
 #endif
 }
 
@@ -583,7 +689,15 @@ void H5md::setupParticleBlockForGroupFromExistingFile(const std::string& selecti
 void H5md::setupFromExistingFile()
 {
 #if GMX_USE_HDF5
-    setupParticleBlockForGroupFromExistingFile(c_fullSystemGroupName, std::nullopt, std::nullopt);
+    const std::optional<int64_t> numParticles =
+            calcNumParticlesForSelection(fileid(), c_fullSystemGroupName);
+    GMX_H5MD_THROW_UPON_ERROR(
+            !numParticles.has_value(),
+            formatString(
+                    "Cannot set up particle block for group '%s': no trajectory data is available",
+                    c_fullSystemGroupName));
+
+    setupParticleBlockForGroupFromExistingFile(c_fullSystemGroupName, std::nullopt, numParticles.value());
 #endif
 }
 
@@ -595,6 +709,49 @@ void H5md::setupFromExistingFileForAppending(const int64_t restartingFromStep, c
 #else
     GMX_UNUSED_VALUE(restartingFromStep);
     GMX_UNUSED_VALUE(numParticles);
+#endif
+}
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+void H5md::copyMetaDataFromFile(const H5md& other, const bool copyTopology)
+{
+#if GMX_USE_HDF5
+    // Helper to create full paths to a H5MD module from its name,
+    // i.e. from '<name>' to '/h5md/modules/<name>'
+    auto pathToModule = [&](const char* moduleName) -> std::string
+    { return joinStrings({ c_h5mdMetaDataGroupName, c_h5mdModulesGroupName, moduleName }, "/"); };
+
+    std::vector<std::string> objectsToCopy = {
+        pathToModule("gromacs"),
+        pathToModule("units"),
+    };
+
+    if (copyTopology)
+    {
+        objectsToCopy.push_back(pathToModule("gromacs_topology"));
+        objectsToCopy.push_back(c_h5mdConnectivityGroupPath);
+    }
+
+    // To copy nested paths we need to set the option to create intermediate
+    // groups to the link creation property list (lcpl_id in the HDF5 docs).
+    const auto [linkCreationPropertyList, linkCreationPropertyListGuard] =
+            makeH5mdPropertyListGuard(H5Pcreate(H5P_LINK_CREATE));
+    H5Pset_create_intermediate_group(linkCreationPropertyList, 1);
+
+    for (const std::string& path : objectsToCopy)
+    {
+        if (objectExists(other.fileid(), path.c_str()))
+        {
+            GMX_H5MD_THROW_UPON_ERROR(
+                    H5Ocopy(other.fileid(), path.c_str(), fileid(), path.c_str(), H5P_DEFAULT, linkCreationPropertyList)
+                            < 0,
+                    formatString("Encountered error when copying object at '%s'.", path.c_str()));
+        }
+    }
+
+#else
+    GMX_UNUSED_VALUE(other);
+    GMX_UNUSED_VALUE(copyTopology);
 #endif
 }
 
@@ -660,23 +817,39 @@ void H5md::writeNextFrame(ArrayRef<const RVec> positions,
                           const double         time)
 {
 #if GMX_USE_HDF5
-    // Helper for error message creation when writing each array to the data sets
-    const auto blockNotFoundError = [&](const char* blockType)
-    {
-        return formatString(
-                "Cannot write %s for group '%s': no data set exists", blockType, c_fullSystemGroupName);
-    };
-
     // We don't want to do a try-catch block or expensive search for every write,
     // since we should always find the desired block after the H5md file has been set up.
     // For extra debugging we leave this assert as a bread crumb.
     GMX_ASSERT(particleBlocks_.find(c_fullSystemGroupName) != particleBlocks_.cend(),
                "Could not find particle block when writing trajectory data");
 
+    const auto createTimeDataBlock = [&](const char* name, const char* unit, const ArrayRef<const RVec> values)
+    {
+        const std::string selectionGroupPath =
+                joinStrings({ c_particlesGroupPath, c_fullSystemGroupName }, "/");
+        const auto [selectionGroup, selectionGroupGuard] =
+                makeH5mdGroupGuard(openGroup(fileid(), selectionGroupPath.c_str()));
+
+        return H5mdTimeDataBlockBuilder<RVec>(selectionGroup, name)
+                .withFrameDimension({ values.size() })
+                .withUnit(unit)
+                .build();
+    };
+
     H5mdParticleBlock& particleBlock = particleBlocks_.at(c_fullSystemGroupName).block();
     if (!positions.empty())
     {
-        GMX_H5MD_THROW_UPON_ERROR(!particleBlock.hasPosition(), blockNotFoundError("positions"));
+        if (!particleBlock.hasPosition())
+        {
+            // Check this before creating the time data block to not fill
+            // the file with garbage in case the numbers do not match (also below)
+            GMX_H5MD_THROW_UPON_ERROR(
+                    gmx::ssize(positions) != particleBlock.numParticles(),
+                    "Number of positions does not match number of particles in block");
+            particleBlock.addPosition(createTimeDataBlock(c_positionGroupName, c_positionUnit, positions));
+            setupSimulationBoxDataSet(fileid(), c_fullSystemGroupName, &particleBlock);
+        }
+
         particleBlock.position()->writeNextFrame(positions, step, time);
         if (particleBlock.hasBox())
         {
@@ -686,12 +859,26 @@ void H5md::writeNextFrame(ArrayRef<const RVec> positions,
     }
     if (!velocities.empty())
     {
-        GMX_H5MD_THROW_UPON_ERROR(!particleBlock.hasVelocity(), blockNotFoundError("velocities"));
+        if (!particleBlock.hasVelocity())
+        {
+            GMX_H5MD_THROW_UPON_ERROR(
+                    gmx::ssize(velocities) != particleBlock.numParticles(),
+                    "Number of velocities does not match number of particles in block");
+            particleBlock.addVelocity(createTimeDataBlock(c_velocityGroupName, c_velocityUnit, velocities));
+        }
+
         particleBlock.velocity()->writeNextFrame(velocities, step, time);
     }
     if (!forces.empty())
     {
-        GMX_H5MD_THROW_UPON_ERROR(!particleBlock.hasForce(), blockNotFoundError("forces"));
+        if (!particleBlock.hasForce())
+        {
+            GMX_H5MD_THROW_UPON_ERROR(
+                    gmx::ssize(forces) != particleBlock.numParticles(),
+                    "Number of forces does not match number of particles in block");
+            particleBlock.addForce(createTimeDataBlock(c_forceGroupName, c_forceUnit, forces));
+        }
+
         particleBlock.force()->writeNextFrame(forces, step, time);
     }
 #else

@@ -853,8 +853,23 @@ static std::unique_ptr<gmx_pme_t> pmeInitWithStorage(const gmx_domdec_t*  dd,
 
         GMX_RELEASE_ASSERT(gridSpacing > 0, "Computed value of grid spacing is 0");
 
-        const int pmeGpuGridHalo = numGridLinesForExtendedHaloRegion(
+        int pmeGpuGridHalo = numGridLinesForExtendedHaloRegion(
                 ir->pme_order, haloExtentForAtomDisplacement, gridSpacing);
+
+        // PP domain boundaries are at uniform fractions of the box, whereas the PME slabs
+        // start at grid lines rounded down (see init_overlap_comm()). When the grid size
+        // is not a multiple of the number of PME domains, a PP domain can therefore extend
+        // up to one grid line beyond the upper end of its PME slab, so we need one more
+        // halo line. The lower side does not need this line: spreading goes upward from
+        // the atom's grid line and the halo is the same on both sides, so the lower side
+        // already has pme_order - 1 spare lines.
+        const bool haveSlabBoundaryOffGridLine =
+                (pme->nnodes_major > 1 && pme->nkx % pme->nnodes_major != 0)
+                || (pme->nnodes_minor > 1 && pme->nky % pme->nnodes_minor != 0);
+        if (haveSlabBoundaryOffGridLine)
+        {
+            pmeGpuGridHalo += 1;
+        }
 
         if (debug)
         {
@@ -1267,6 +1282,12 @@ static void calc_next_lb_coeffs(gmx::ArrayRef<real> coefficient, gmx::ArrayRef<c
     }
 }
 
+/*! \brief Return whether an FEP reciprocal grid state has zero force weight */
+static bool hasZeroFepForceWeight(const int stateIndex, const real lambda)
+{
+    return (stateIndex == 0 && lambda == 1.0_real) || (stateIndex == 1 && lambda == 0.0_real);
+}
+
 int gmx_pme_do(struct gmx_pme_t*              pme,
                gmx::ArrayRef<const gmx::RVec> coordinates,
                gmx::ArrayRef<gmx::RVec>       forces,
@@ -1354,6 +1375,15 @@ int gmx_pme_do(struct gmx_pme_t*              pme,
     const bool computeEnergyAndVirial = stepWork.computeEnergyAndVirial;
     for (gmx_pme_t::GridsRef& gridsRef : pme->gridsRefs)
     {
+        // Zero-weight states are only required for computing dV/dlambda (at nstcalcenergy
+        // steps), not for the virial, but PmeStepWorkload currently combines both.
+        if (!computeEnergyAndVirial
+            && ((gridsRef.isCoulomb && pme->bFEP_q) || (!gridsRef.isCoulomb && pme->bFEP_lj))
+            && hasZeroFepForceWeight(gridsRef.gridsIndex, gridsRef.isCoulomb ? lambda_q : lambda_lj))
+        {
+            continue;
+        }
+
         gmx::ArrayRef<const real> coefficient;
         if (gridsRef.isCoulomb)
         {
@@ -1563,6 +1593,11 @@ int gmx_pme_do(struct gmx_pme_t*              pme,
         /* Loop over A- and B-state if we are doing FEP */
         for (int fep_state = 0; fep_state < fep_states_lj; ++fep_state)
         {
+            if (!computeEnergyAndVirial && pme->bFEP_lj && hasZeroFepForceWeight(fep_state, lambda_lj))
+            {
+                continue;
+            }
+
             std::vector<real>         local_c6;
             std::vector<real>         local_sigma;
             gmx::ArrayRef<const real> RedistC6;

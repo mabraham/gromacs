@@ -57,7 +57,7 @@ struct GpuConfigurationCapabilities
     //! Whether this configuration supports running NBNXM kernels on the device
     static constexpr bool Nonbonded = GMX_GPU;
     //! Whether this configuration supports running NB free energy kernels on the device
-    static constexpr bool NonbondedFE = Nonbonded && (GMX_GPU_CUDA || GMX_GPU_HIP);
+    static constexpr bool NonbondedFE = Nonbonded && !GMX_GPU_OPENCL;
     //! Whether this configuration supports running buffer operation kernels on the device
     static constexpr bool BufferOps = GMX_GPU && !GMX_GPU_OPENCL;
     //! Whether this configuration supports running PME kernels on the device
@@ -83,7 +83,7 @@ struct GpuConfigurationCapabilities
     //! Whether this configuration supports running update with leapfrog on the device
     static constexpr bool UpdateLeapfrog = GMX_GPU && !GMX_GPU_OPENCL;
     //! Whether this configuration supports running update with stochastic dynamics on the device
-    static constexpr bool UpdateSD = false;
+    static constexpr bool UpdateSD = GMX_GPU && !GMX_GPU_OPENCL;
     //! Whether this configuration supports running the constraint kernels (LINCS+SETTLE) on the device
     static constexpr bool Constraints = GMX_GPU && !GMX_GPU_OPENCL;
     //! Whether this configuration supports running the direct GPU communication path with thread-MPI
@@ -102,10 +102,11 @@ struct GpuConfigurationCapabilities
     //! Whether this configuration supports running gpu graphs
     static constexpr bool GpuGraph = GMX_HAVE_GPU_GRAPH_SUPPORT;
     //! Whether this configuration supports running gpu pme decomposition
-    static constexpr bool PmeDecomposition = (GMX_GPU_CUDA && (GMX_USE_Heffte || GMX_USE_cuFFTMp))
-                                             || (GMX_GPU_SYCL && GMX_USE_Heffte)
-                                             || (GMX_GPU_HIP && GMX_USE_Heffte);
-    static constexpr bool TwoDPmeDecomposition = PmeDecomposition && GMX_GPU_CUDA;
+    static constexpr bool PmeDecomposition =
+            (GMX_GPU_CUDA && (GMX_USE_Heffte || GMX_USE_cuFFTMp)) || (GMX_GPU_SYCL && GMX_USE_Heffte)
+            || (GMX_GPU_HIP && (GMX_USE_DISTRIBUTED_ROCFFT || GMX_USE_Heffte));
+    static constexpr bool TwoDPmeDecomposition =
+            PmeDecomposition && (GMX_GPU_CUDA || GMX_GPU_HIP) && !GMX_USE_Heffte;
     //! Whether we support running the threefry random number generator on the device.
     static constexpr bool Threefry = GMX_GPU && !GMX_GPU_OPENCL;
 };

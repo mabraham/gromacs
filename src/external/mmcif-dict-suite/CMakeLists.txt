@@ -81,6 +81,21 @@ target_include_directories(mmcif SYSTEM PUBLIC
     ${MMCIF_GENERATED}
     )
 
+# MSVC has no <unistd.h>; msvc/ supplies one for the suite's own sources only.
+# MSVC also decorates C++ variable names, so the parser classes must see the
+# variables they share with the C parsers declared extern "C" first.
+if(MSVC)
+    target_include_directories(mmcif SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/msvc)
+    set_source_files_properties(
+        ${MMCIF_MODULES}/cpp-cif-parser/src/CifParserBase.C
+        ${MMCIF_MODULES}/cpp-cif-parser/src/CifScannerBase.C
+        PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/msvc/cif_parser_linkage.h")
+    set_source_files_properties(
+        ${MMCIF_MODULES}/cpp-cif-parser/src/DICParserBase.C
+        ${MMCIF_MODULES}/cpp-cif-parser/src/DICScannerBase.C
+        PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/msvc/dic_parser_linkage.h")
+endif()
+
 # This is third-party code: keep it position-independent for a shared libgromacs
 # and silence its (many) warnings so it does not pollute the GROMACS build.
 set_target_properties(mmcif PROPERTIES POSITION_INDEPENDENT_CODE ON)

@@ -154,10 +154,6 @@ public:
                           "TNG support is not configured");
         messages.appendIf(!GMX_USE_HDF5 && (inputExt_ == efH5MD || outputExt_ == efH5MD),
                           "H5MD support is not configured");
-        messages.appendIf(
-                GMX_DOUBLE && inputExt_ == efH5MD,
-                "Cannot yet read single-precision H5MD trajectory with double-precision build");
-        messages.appendIf(outputExt_ == efH5MD, "H5MD output is not yet implemented");
         // TODO: Remove this conditional once a fix is in (see #5747).
         messages.appendIf(inputExt_ == efTNG && outputExt_ == efTNG,
                           "TNG to TNG conversion is currently broken");
@@ -271,7 +267,9 @@ TEST_P(TrjconvFormatToFormatTest, FullSystemWithoutTopology)
     MessageStringCollector skipMessages = getSkipMessagesIfNecessary();
     MessageStringContext skipMessagesExtraContext(&skipMessages, "Test is being skipped because:");
     skipMessages.appendIf(outputExt() == efPDB || outputExt() == efGRO || outputExt() == efTNG,
-                          "PDB, GRO and TNG output requires a present topology");
+                          "PDB, GRO, and TNG output requires a present topology");
+    skipMessages.appendIf(outputExt() == efH5MD && inputExt() != efH5MD,
+                          "H5MD output requires either an input H5MD file or a present topology");
     if (!skipMessages.isEmpty())
     {
         GTEST_SKIP() << skipMessages.toString();
@@ -420,11 +418,6 @@ TEST_P(TrjconvDumpTest, DumpsFrame)
     if (!GMX_USE_HDF5 && std::strstr(std::get<0>(GetParam()), ".h5md") != nullptr)
     {
         GTEST_SKIP() << "Cannot test H5MD reading if H5MD support is not configured";
-    }
-    if (GMX_USE_HDF5 && GMX_DOUBLE && std::strstr(std::get<0>(GetParam()), ".h5md") != nullptr)
-    {
-        GTEST_SKIP() << "Cannot yet test H5MD reading from double precision since trajectory file "
-                        "is single precision";
     }
     auto& cmdline = commandLine();
 
