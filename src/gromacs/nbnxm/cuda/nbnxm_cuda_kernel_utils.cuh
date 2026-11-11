@@ -469,11 +469,15 @@ static __forceinline__ __device__ void reduce_force_i_pow2(volatile float* f_buf
         if (tidxj < i)
         {
 
-            f_buf[tidxj * c_clusterSize + tidxi] += f_buf[(tidxj + i) * c_clusterSize + tidxi];
-            f_buf[c_fbufStride + tidxj * c_clusterSize + tidxi] +=
-                    f_buf[c_fbufStride + (tidxj + i) * c_clusterSize + tidxi];
-            f_buf[2 * c_fbufStride + tidxj * c_clusterSize + tidxi] +=
-                    f_buf[2 * c_fbufStride + (tidxj + i) * c_clusterSize + tidxi];
+            // C++20 deprecates compound assignment to volatile, so spell it out
+            f_buf[tidxj * c_clusterSize + tidxi] =
+                    f_buf[tidxj * c_clusterSize + tidxi] + f_buf[(tidxj + i) * c_clusterSize + tidxi];
+            f_buf[c_fbufStride + tidxj * c_clusterSize + tidxi] =
+                    f_buf[c_fbufStride + tidxj * c_clusterSize + tidxi]
+                    + f_buf[c_fbufStride + (tidxj + i) * c_clusterSize + tidxi];
+            f_buf[2 * c_fbufStride + tidxj * c_clusterSize + tidxi] =
+                    f_buf[2 * c_fbufStride + tidxj * c_clusterSize + tidxi]
+                    + f_buf[2 * c_fbufStride + (tidxj + i) * c_clusterSize + tidxi];
         }
         i >>= 1;
     }
@@ -565,8 +569,9 @@ reduce_energy_pow2(volatile float* buf, float* e_lj, float* e_el, unsigned int t
     {
         if (tidx < i)
         {
-            buf[tidx] += buf[tidx + i];
-            buf[c_fbufStride + tidx] += buf[c_fbufStride + tidx + i];
+            // C++20 deprecates compound assignment to volatile, so spell it out
+            buf[tidx]                = buf[tidx] + buf[tidx + i];
+            buf[c_fbufStride + tidx] = buf[c_fbufStride + tidx] + buf[c_fbufStride + tidx + i];
         }
         i >>= 1;
     }
