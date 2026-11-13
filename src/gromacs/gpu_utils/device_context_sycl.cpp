@@ -42,14 +42,15 @@
  */
 #include "gmxpre.h"
 
-#include "gromacs/gpu_utils/device_context.h"
+#include "gromacs/gpu_utils/device_context_sycl.h"
+
 #include "gromacs/gpu_utils/gmxsycl.h"
 #include "gromacs/hardware/device_information.h"
 
 
 //! Constructor
 DeviceContext::DeviceContext(const DeviceInformation& deviceInfo) :
-    deviceInfo_(deviceInfo), context_(sycl::context(deviceInfo.syclDevice))
+    deviceInfo_(deviceInfo), impl_(std::make_unique<Impl>(sycl::context(deviceInfo.syclDevice)))
 {
     activate();
 }

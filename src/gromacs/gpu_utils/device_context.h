@@ -51,7 +51,7 @@
 #    include "gromacs/gpu_utils/gmxopencl.h"
 #endif
 #if GMX_GPU_SYCL
-#    include "gromacs/gpu_utils/gmxsycl.h"
+#    include <memory>
 #endif
 
 #include "gromacs/hardware/device_management.h"
@@ -91,14 +91,18 @@ private:
 
 #if GMX_GPU_SYCL
 public:
-    //! Const getter
-    const sycl::context& context() const { return context_; }
-    //! Getter
-    sycl::context& context() { return context_; }
+    /*! \brief SYCL state, defined in device_context_sycl.h
+     *
+     * Holding it by pointer keeps this header free of SYCL headers,
+     * so code that only creates, activates or passes on a context
+     * need not be compiled as SYCL. */
+    class Impl;
+    //! Get the SYCL state; see syclContext() in device_context_sycl.h
+    const Impl& impl() const { return *impl_; }
 
 private:
-    //! SYCL context object
-    sycl::context context_;
+    //! SYCL state
+    std::unique_ptr<Impl> impl_;
 #endif
 
     GMX_DISALLOW_COPY_MOVE_AND_ASSIGN(DeviceContext);

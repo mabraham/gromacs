@@ -152,7 +152,6 @@ elseif (GMX_GPU_SYCL)
         pme_gather_sycl.cpp
         pme_gpu_grid_sycl.cpp
         pme_gpu_internal.cpp
-        pme_gpu_program.cpp
         pme_gpu_program_impl_sycl.cpp
         pme_gpu_timings.cpp
         pme_pp_comm_gpu_impl_gpu.cpp

@@ -44,7 +44,7 @@
 
 #include <cstdio>
 
-#include "gromacs/gpu_utils/device_context.h"
+#include "gromacs/gpu_utils/device_context_sycl.h"
 #include "gromacs/gpu_utils/device_stream.h"
 #include "gromacs/hardware/device_information.h"
 #include "gromacs/utility/exceptions.h"
@@ -171,7 +171,7 @@ static sycl::queue makeQueue(const DeviceContext& deviceContext, DeviceStreamPri
         const bool deviceSupportsTiming = device.has(sycl::aspect::queue_profiling);
         enableProfiling                 = deviceSupportsTiming;
     }
-    return sycl::queue(deviceContext.context(),
+    return sycl::queue(syclContext(deviceContext),
                        device,
                        makeQueuePropertyList(enableProfiling, priority, deviceContext));
 }

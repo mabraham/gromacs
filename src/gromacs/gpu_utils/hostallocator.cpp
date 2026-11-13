@@ -51,7 +51,7 @@
 #elif GMX_GPU_HIP
 #    include "gromacs/gpu_utils/hiputils.h"
 #elif GMX_GPU_SYCL
-#    include "gromacs/gpu_utils/gmxsycl.h"
+#    include "gromacs/gpu_utils/device_context_sycl.h"
 #endif
 
 #include "gromacs/gpu_utils/device_context.h"
@@ -111,7 +111,7 @@ void* HostAllocationPolicy::malloc(std::size_t bytes) const noexcept
     checkDeviceError(stat, formatString("hipHostMalloc of size %zu bytes failed", bytes));
     return p;
 #elif GMX_GPU_SYCL
-    return sycl::malloc_host<std::byte>(bytes, deviceContext.context());
+    return sycl::malloc_host<std::byte>(bytes, syclContext(deviceContext));
 #else
     return PageAlignedAllocationPolicy::malloc(bytes);
 #endif
@@ -137,9 +137,9 @@ void HostAllocationPolicy::free(void* buffer) const noexcept
     ensureNoPendingDeviceError("Could not free page-locked memory.");
     checkDeviceError(hipHostFree(buffer), "hipHostFree failed");
 #elif GMX_GPU_SYCL
-    GMX_ASSERT(sycl::get_pointer_type(buffer, deviceContext.context()) == sycl::usm::alloc::host,
+    GMX_ASSERT(sycl::get_pointer_type(buffer, syclContext(deviceContext)) == sycl::usm::alloc::host,
                "Freeing a buffer that is not pinned, or with the wrong context");
-    sycl::free(buffer, deviceContext.context());
+    sycl::free(buffer, syclContext(deviceContext));
 #else
     PageAlignedAllocationPolicy::free(buffer);
 #endif
@@ -182,7 +182,7 @@ bool isHostMemoryPinned(const void* h_ptr, const DeviceContext* deviceContext)
 #    if GMX_GPU_SYCL
     GMX_RELEASE_ASSERT(deviceContext != nullptr,
                        "SYCL needs a context to check whether memory is pinned");
-    return sycl::get_pointer_type(h_ptr, deviceContext->context()) == sycl::usm::alloc::host;
+    return sycl::get_pointer_type(h_ptr, syclContext(*deviceContext)) == sycl::usm::alloc::host;
 #    else
     GMX_UNUSED_VALUE(h_ptr);
     GMX_UNUSED_VALUE(deviceContext);

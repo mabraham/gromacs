@@ -37,10 +37,9 @@ gmx_add_unit_test(MdtypesUnitTest mdtypes-test
         enerdata.cpp
         observablesreducer.cpp
         checkpointdata.cpp
+        forcebuffers.cpp
         multipletimestepping.cpp
         output_control.cpp
-    GPU_CPP_SOURCE_FILES
-        forcebuffers.cpp
         )
 target_link_libraries(mdtypes-test PRIVATE
                       mdtypes

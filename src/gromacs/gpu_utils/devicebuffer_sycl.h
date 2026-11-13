@@ -49,7 +49,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "gromacs/gpu_utils/device_context.h"
+#include "gromacs/gpu_utils/device_context_sycl.h"
 #include "gromacs/gpu_utils/device_stream.h"
 #include "gromacs/gpu_utils/devicebuffer_datatype.h"
 #include "gromacs/gpu_utils/gmxsycl.h"
@@ -197,8 +197,8 @@ template<typename ValueType>
 void allocateDeviceBuffer(DeviceBuffer<ValueType>* buffer, size_t numValues, const DeviceContext& deviceContext)
 {
     ValueType* ptr = sycl::malloc_device<ValueType>(
-            numValues, deviceContext.deviceInfo().syclDevice, deviceContext.context());
-    buffer->buffer_.reset(new SyclBufferWrapper<ValueType>(ptr, deviceContext.context()));
+            numValues, deviceContext.deviceInfo().syclDevice, syclContext(deviceContext));
+    buffer->buffer_.reset(new SyclBufferWrapper<ValueType>(ptr, syclContext(deviceContext)));
 }
 
 /*! \brief

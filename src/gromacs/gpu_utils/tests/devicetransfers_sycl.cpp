@@ -39,7 +39,7 @@
  */
 #include "gmxpre.h"
 
-#include "gromacs/gpu_utils/device_context.h"
+#include "gromacs/gpu_utils/device_context_sycl.h"
 #include "gromacs/gpu_utils/gmxsycl.h"
 #include "gromacs/hardware/device_information.h"
 #include "gromacs/utility/arrayref.h"
@@ -59,7 +59,7 @@ void doDeviceTransfers(const DeviceContext& deviceContext, ArrayRef<const char> 
     try
     {
         const sycl::device& device = deviceContext.deviceInfo().syclDevice;
-        sycl::queue syclQueue(deviceContext.context(), device, { sycl::property::queue::in_order{} });
+        sycl::queue syclQueue(syclContext(deviceContext), device, { sycl::property::queue::in_order{} });
 
         sycl::global_ptr<char> d_buf = sycl::malloc_device<char>(input.size(), syclQueue);
 

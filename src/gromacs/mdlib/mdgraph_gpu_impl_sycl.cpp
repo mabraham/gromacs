@@ -44,7 +44,7 @@
 
 #include "gmxpre.h"
 
-#include "gromacs/gpu_utils/device_context.h"
+#include "gromacs/gpu_utils/device_context_sycl.h"
 #include "gromacs/gpu_utils/device_stream.h"
 #include "gromacs/gpu_utils/gmxsycl.h"
 #include "gromacs/gpu_utils/gpueventsynchronizer.h"
@@ -157,7 +157,7 @@ void MdGpuGraph::Impl::startRecord(GpuEventSynchronizer* xReadyOnDeviceEvent)
     // Disable check for cycles in graph
     static const sycl::property_list s_propList{ syclex::property::graph::no_cycle_check() };
     graph_ = std::make_unique<syclex::command_graph<syclex::graph_state::modifiable>>(
-            deviceStreamManager_.context().context(), deviceStreamManager_.deviceInfo().syclDevice, s_propList);
+            syclContext(deviceStreamManager_.context()), deviceStreamManager_.deviceInfo().syclDevice, s_propList);
     graphCaptureStarted_ = true;
 
     std::vector<sycl::queue> queuesToRecord;
