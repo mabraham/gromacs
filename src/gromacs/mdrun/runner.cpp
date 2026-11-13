@@ -85,6 +85,7 @@
 #include "gromacs/gmxlib/network.h"
 #include "gromacs/gmxlib/nrnb.h"
 #include "gromacs/gpu_utils/capabilities.h"
+#include "gromacs/gpu_utils/device_context.h"
 #include "gromacs/gpu_utils/device_stream_manager.h"
 #include "gromacs/gpu_utils/gpu_utils.h"
 #include "gromacs/gpu_utils/gpueventsynchronizer_helpers.h"
@@ -1657,6 +1658,9 @@ int Mdrunner::mdrunner()
     const bool printHostName = (cr->commMySim.isParallel());
     gpuTaskAssignments.reportGpuUsage(mdlog, printHostName, pmeRunMode, runScheduleWork.simulationWork);
 
+    // The context outlives the stream manager and everything else
+    // that uses the device.
+    std::unique_ptr<DeviceContext>       ownedDeviceContext  = nullptr;
     std::unique_ptr<DeviceStreamManager> deviceStreamManager = nullptr;
 
     if (deviceInfo != nullptr)
@@ -1666,8 +1670,9 @@ int Mdrunner::mdrunner()
             dd_setup_dlb_resource_sharing(cr, uniqueDeviceId(*deviceInfo));
         }
         const bool useGpuTiming = decideGpuTimingsUsage();
+        ownedDeviceContext      = std::make_unique<DeviceContext>(*deviceInfo);
         deviceStreamManager     = std::make_unique<DeviceStreamManager>(
-                *deviceInfo, runScheduleWork.simulationWork, useGpuTiming);
+                *ownedDeviceContext, runScheduleWork.simulationWork, useGpuTiming);
 
         localState->x = PaddedHostVector<RVec>(
                 localState->x,
@@ -2498,6 +2503,8 @@ int Mdrunner::mdrunner()
         nvshmemManager.reset(nullptr);
         // Destroy streams after all the structures using them
         deviceStreamManager.reset(nullptr);
+        // Destroy the context after the streams
+        ownedDeviceContext.reset(nullptr);
 
         /* With tMPI we need to wait for all ranks to finish deallocation before
          * destroying the CUDA context as some tMPI ranks may be sharing

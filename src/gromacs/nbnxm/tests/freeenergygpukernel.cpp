@@ -665,14 +665,13 @@ protected:
         // t_nrnb nrnb;
         for (const auto& testDevice : getTestHardwareEnvironment()->getTestDeviceList())
         {
-            // The stream manager makes and activates its own context, so
-            // the buffers must use that context too
+            testDevice->deviceContext().activate();
             SimulationWorkload simulationWorkload;
             auto               deviceStreamManager = std::make_shared<DeviceStreamManager>(
-                    testDevice->deviceInfo(), simulationWorkload, false);
+                    testDevice->deviceContext(), simulationWorkload, false);
 
             auto nbat = makeNbatForFepTest(
-                    deviceStreamManager->context(), input_.atoms, x_, fr, lambdas, input_.ljCombinationRule);
+                    testDevice->deviceContext(), input_.atoms, x_, fr, lambdas, input_.ljCombinationRule);
 
             PairlistParams pairlistParams(NbnxmKernelType::Gpu8x8x8, sc_layoutType, true, fr.rlist, false);
             pairlistParams.haveNonbondedFEGpu_ = true;

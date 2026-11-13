@@ -81,11 +81,11 @@ enum class DeviceStreamType : int
 };
 
 /*! \libinternal
- * \brief Device stream and context manager.
+ * \brief Device stream manager.
  *
  * Given information on which device to use and what to compute with
- * it, objects of this class manage the lifetime of the GPU context
- * and streams.
+ * it, objects of this class manage the lifetime of the GPU streams.
+ * The caller owns the GPU context.
  *
  * If supported by the GPU API, the available runtime and the
  * indicated device, some streams will be configured at high
@@ -97,11 +97,16 @@ class DeviceStreamManager
 public:
     /*! \brief Constructor.
      *
-     * Activates the device described by \c deviceInfo
+     * Creates streams in \c deviceContext, which the caller owns and
+     * must keep alive until this object is destroyed. Several stream
+     * managers can share one context.
+     *
+     * Does not activate the device. The owner of \c deviceContext is
+     * responsible for that, on each thread that uses it.
      *
      * \throws InternalError  If any of the required resources could not be initialized.
      */
-    DeviceStreamManager(const DeviceInformation& deviceInfo, SimulationWorkload simulationWork, bool useTiming);
+    DeviceStreamManager(const DeviceContext& deviceContext, SimulationWorkload simulationWork, bool useTiming);
     ~DeviceStreamManager();
 
     /*! \brief Get the device information object of the associated device.

@@ -224,10 +224,10 @@ gmx::SimulationWorkload createSimulationWorkloadGpu()
     return simulationWork;
 }
 
-std::shared_ptr<gmx::DeviceStreamManager> createDeviceStreamManager(const DeviceInformation& deviceInfo,
+std::shared_ptr<gmx::DeviceStreamManager> createDeviceStreamManager(const DeviceContext& deviceContext,
                                                                     const gmx::SimulationWorkload& simulationWorkload)
 {
-    return std::make_shared<gmx::DeviceStreamManager>(deviceInfo, simulationWorkload, false);
+    return std::make_shared<gmx::DeviceStreamManager>(deviceContext, simulationWorkload, false);
 }
 
 real ewaldCoeff(const real ewald_rtol, const real pairlistCutoff)

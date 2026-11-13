@@ -57,7 +57,7 @@ struct t_forcerec;
 struct t_nrnb;
 struct interaction_const_t;
 struct gmx_enerdata_t;
-struct DeviceInformation;
+class DeviceContext;
 
 namespace gmx
 {
@@ -109,8 +109,11 @@ gmx::StepWorkload createStepWorkload();
 //! Create a SimulationWorkload object for use with createDeviceStreamManager
 gmx::SimulationWorkload createSimulationWorkloadGpu();
 
-//! Create a DeviceStreamManager; could be shared among multiple force calculators
-std::shared_ptr<gmx::DeviceStreamManager> createDeviceStreamManager(const DeviceInformation& deviceInfo,
+/*! \brief Create a DeviceStreamManager; could be shared among multiple force calculators
+ *
+ * The caller owns \c deviceContext, and must keep it alive while the
+ * returned manager exists, and activate it on the calling thread. */
+std::shared_ptr<gmx::DeviceStreamManager> createDeviceStreamManager(const DeviceContext& deviceContext,
                                                                     const gmx::SimulationWorkload& simulationWorkload);
 
 //! Computes the Ewald splitting coefficient for Coulomb

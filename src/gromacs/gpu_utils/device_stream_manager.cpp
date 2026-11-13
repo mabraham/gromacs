@@ -58,8 +58,7 @@ namespace gmx
 {
 
 /*! \libinternal
- * \brief Impl class to manages the lifetime of the GPU context
- * and streams.
+ * \brief Impl class to manage the lifetime of the GPU streams.
  *
  * If supported by the GPU API, the available runtime and the
  * indicated device, some streams will be configured at high
@@ -73,11 +72,11 @@ public:
      *
      * \throws InternalError  If any of the required resources could not be initialized.
      */
-    Impl(const DeviceInformation& deviceInfo, SimulationWorkload simulationWork, bool useTiming);
+    Impl(const DeviceContext& context, SimulationWorkload simulationWork, bool useTiming);
     ~Impl();
 
-    //! Device context.
-    DeviceContext context_;
+    //! Device context, owned by the caller.
+    const DeviceContext& context_;
     //! GPU command streams.
     EnumerationArray<DeviceStreamType, std::unique_ptr<DeviceStream>> streams_;
     //! Whether PP domain decomposition is active
@@ -85,12 +84,11 @@ public:
 };
 
 // DeviceStreamManager::Impl
-DeviceStreamManager::Impl::Impl(const DeviceInformation& deviceInfo,
+DeviceStreamManager::Impl::Impl(const DeviceContext&     context,
                                 const SimulationWorkload simulationWork,
                                 const bool               useTiming) :
-    context_(deviceInfo), havePpDomainDecomposition_(simulationWork.havePpDomainDecomposition)
+    context_(context), havePpDomainDecomposition_(simulationWork.havePpDomainDecomposition)
 {
-    context_.activate();
     try
     {
         streams_[DeviceStreamType::NonBondedLocal] =
@@ -151,10 +149,10 @@ DeviceStreamManager::Impl::~Impl()
 }
 
 // DeviceStreamManager
-DeviceStreamManager::DeviceStreamManager(const DeviceInformation& deviceInfo,
+DeviceStreamManager::DeviceStreamManager(const DeviceContext&     deviceContext,
                                          const SimulationWorkload simulationWork,
                                          const bool               useTiming) :
-    impl_(new Impl(deviceInfo, simulationWork, useTiming))
+    impl_(std::make_unique<Impl>(deviceContext, simulationWork, useTiming))
 {
 }
 
