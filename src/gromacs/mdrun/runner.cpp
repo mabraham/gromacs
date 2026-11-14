@@ -821,46 +821,59 @@ static bool localStateHasFillerParticles(const gmx_mtop_t& mtop,
 /*! \brief The data that mdrunner() sets up, runs with and tears down
  *
  * Holds the locals of mdrunner() that are used after setup, or that
- * objects built during setup refer to. Members are declared in the
- * order mdrunner() makes them.
+ * objects built during setup refer to.
+ *
+ * Members are destroyed in the reverse of the order they are declared
+ * here. Those that hold device resources, or that refer to objects
+ * that do, are declared last so that they are destroyed first, and
+ * in the order they need: the objects built for the run, then those
+ * that may have pinned host memory, then the force record, streams
+ * and context. With CUDA, pinned buffers are tied to the context.
  */
 struct MdrunnerState
 {
-    std::unique_ptr<t_forcerec>             fr;
     gmx_walltime_accounting_t               walltime_accounting = nullptr;
     gmx_mtop_t                              mtop;
     FILE*                                   fplog = nullptr;
     std::optional<LoggerOwner>              logOwner;
     MDLogger                                mdlog;
     std::unique_ptr<t_inputrec>             inputrec;
-    std::unique_ptr<t_state>                globalState;
     std::optional<MpiComm>                  mpiCommSimulation;
     std::optional<PhysicalNodeCommunicator> physicalNodeComm;
     ObservablesReducerBuilder               observablesReducerBuilder;
-    t_disresdata*                           disresdata         = nullptr;
     ObservablesHistory                      observablesHistory = {};
     UpdateGroups                            updateGroups;
     LocalAtomSetManager                     atomSets;
-    std::unique_ptr<t_state>                localStateInstance;
     t_state*                                localState = nullptr;
     std::optional<gmx_localtop_t>           localTopology;
-    std::unique_ptr<gmx_domdec_t>           domdec;
-    std::unique_ptr<t_commrec>              commRec;
     t_commrec*                              cr = nullptr;
     MdrunScheduleWorkload                   runScheduleWork;
-    std::unique_ptr<DeviceContext>          ownedDeviceContext;
-    std::unique_ptr<DeviceStreamManager>    deviceStreamManager;
-    std::unique_ptr<NvshmemManager>         nvshmemManager;
     bool                                    bEnableFPE = false;
     std::unique_ptr<gmx_wallcycle>          wcycle;
     std::unique_ptr<BoxDeformation>         deform;
-    std::unique_ptr<MDAtoms>                mdAtoms;
     std::unique_ptr<VirtualSitesHandler>    vsite;
     t_nrnb                                  nrnb;
     PmeGpuProgramStorage                    pmeGpuProgram;
     std::unique_ptr<gmx_pme_t>              pmedata;
-    // Objects built for the run
     pull_t*                                 pull_work = nullptr;
+
+    // Destroyed after the streams that use it
+    std::unique_ptr<DeviceContext>       ownedDeviceContext;
+    std::unique_ptr<DeviceStreamManager> deviceStreamManager;
+    std::unique_ptr<NvshmemManager>      nvshmemManager;
+    unique_cptr<t_disresdata>            disresdata;
+    // Destroyed before the streams
+    std::unique_ptr<t_forcerec> fr;
+    // Force providers might also use the GPU
+    std::unique_ptr<MDModules> mdModules;
+    std::unique_ptr<t_state>   localStateInstance;
+    std::unique_ptr<t_state>   globalState;
+    std::unique_ptr<MDAtoms>   mdAtoms;
+    std::unique_ptr<t_commrec> commRec;
+    // Destroyed before commRec, which refers to it
+    std::unique_ptr<gmx_domdec_t> domdec;
+
+    // Objects built for the run, destroyed newest first
     std::unique_ptr<EnforcedRotation>       enforcedRotation;
     std::unique_ptr<SwapCoords>             swap;
     std::unique_ptr<Constraints>            constr;
@@ -873,7 +886,10 @@ struct MdrunnerState
 
 int Mdrunner::mdrunner()
 {
-    MdrunnerState state;
+    auto           ownedState = std::make_unique<MdrunnerState>();
+    MdrunnerState& state      = *ownedState;
+    state.mdModules           = std::move(mdModules_);
+    auto& mdModules           = state.mdModules;
 
     auto& fr                  = state.fr;
     auto& walltime_accounting = state.walltime_accounting;
@@ -1151,19 +1167,19 @@ int Mdrunner::mdrunner()
     // TODO: hide restraint implementation details from Mdrunner.
     // There is nothing unique about restraints at this point as far as the
     // Mdrunner is concerned. The Mdrunner should just be getting a sequence of
-    // factory functions from the SimulationContext on which to call mdModules_->add().
+    // factory functions from the SimulationContext on which to call mdModules->add().
     // TODO: capture all restraints into a single RestraintModule, passed to the runner builder.
     for (auto&& restraint : restraintManager_->getRestraints())
     {
-        mdModules_->add(RestraintMDModule::sc_name,
-                        RestraintMDModule::create(restraint, restraint->sites()));
+        mdModules->add(RestraintMDModule::sc_name,
+                       RestraintMDModule::create(restraint, restraint->sites()));
     }
 
     // TODO: Error handling
-    mdModules_->assignOptionsToModules(*inputrec->params, nullptr, inputrec.get());
+    mdModules->assignOptionsToModules(*inputrec->params, nullptr, inputrec.get());
     // now that the MDModules know their options, they know which callbacks to sign up to
-    mdModules_->subscribeToSimulationSetupNotifications();
-    const auto& setupNotifier = mdModules_->notifiers().simulationSetupNotifier_;
+    mdModules->subscribeToSimulationSetupNotifications();
+    const auto& setupNotifier = mdModules->notifiers().simulationSetupNotifier_;
 
     // Notify MdModules of existing logger
     setupNotifier.notify(mdlog);
@@ -1269,8 +1285,9 @@ int Mdrunner::mdrunner()
      */
 
     /* This needs to be called before read_checkpoint to extend the state */
-    auto& disresdata = state.disresdata;
+    t_disresdata* disresdata;
     snew(disresdata, 1);
+    state.disresdata.reset(disresdata);
     init_disres(fplog,
                 mtop,
                 inputrec.get(),
@@ -1329,7 +1346,7 @@ int Mdrunner::mdrunner()
                         globalState.get(),
                         &observablesHistory,
                         mdrunOptions.reproducible,
-                        mdModules_->notifiers(),
+                        mdModules->notifiers(),
                         modularSimulatorCheckpointData.get(),
                         useModularSimulator);
         // TODO: (#3652) Synchronize filesystem state, SimulationInput contents, and program
@@ -1529,7 +1546,7 @@ int Mdrunner::mdrunner()
                 mdrunOptions,
                 mtop,
                 *inputrec,
-                mdModules_->notifiers(),
+                mdModules->notifiers(),
                 box,
                 updateGroups.updateGroupingPerMoleculeType(),
                 updateGroups.useUpdateGroups(),
@@ -1911,7 +1928,7 @@ int Mdrunner::mdrunner()
         {
             fr = std::make_unique<t_forcerec>(HostAllocationPolicy{});
         }
-        fr->forceProviders = mdModules_->initForceProviders(wcycle.get());
+        fr->forceProviders = mdModules->initForceProviders(wcycle.get());
 
         std::optional<bool> anMDModuleProvidesDirectCoulomb = mdModuleCoulombDirectProvider.isDirectProvider;
         if (setupNotifier.haveSubscribers<MDModulesDirectProvider*>()
@@ -1964,9 +1981,9 @@ int Mdrunner::mdrunner()
 
         // Now that all simulation setup notifications have been emitted,
         // set up the simulation run notification subscriptions
-        mdModules_->subscribeToSimulationRunNotifications();
+        mdModules->subscribeToSimulationRunNotifications();
 
-        if (mdModules_->notifiers().simulationRunNotifier_.haveSubscribers<const MDModulesPairlistConstructedSignal&>())
+        if (mdModules->notifiers().simulationRunNotifier_.haveSubscribers<const MDModulesPairlistConstructedSignal&>())
         {
             if (plainPairlistRanges.ranges().empty())
             {
@@ -2476,7 +2493,7 @@ int Mdrunner::mdrunner()
                     static_cast<int>(filenames.size()), filenames.data(), inputrec.get(), fr.get()));
             simulatorBuilder.add(ReplicaExchangeParameters(replExParams));
             simulatorBuilder.add(InteractiveMD(imdSession.get()));
-            simulatorBuilder.add(SimulatorModules(mdModules_->outputProvider(), mdModules_->notifiers()));
+            simulatorBuilder.add(SimulatorModules(mdModules->outputProvider(), mdModules->notifiers()));
             simulatorBuilder.add(CenterOfMassPulling(pull_work));
             // Todo move to an MDModule
             simulatorBuilder.add(IonSwapping(swap.get()));
@@ -2557,73 +2574,28 @@ int Mdrunner::mdrunner()
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
 
-    return tearDown(state);
+    return tearDown(std::move(ownedState));
 } // Mdrunner::mdrunner
 
-int Mdrunner::tearDown(MdrunnerState& state)
+int Mdrunner::tearDown(std::unique_ptr<MdrunnerState> ownedState)
 {
-    auto& fr                  = state.fr;
-    auto& walltime_accounting = state.walltime_accounting;
-    auto& fplog               = state.fplog;
-    auto& globalState         = state.globalState;
-    auto& physicalNodeComm    = *state.physicalNodeComm;
-    auto& disresdata          = state.disresdata;
-    auto& localStateInstance  = state.localStateInstance;
-    auto& domdec              = state.domdec;
-    auto& commRec             = state.commRec;
-    auto& cr                  = state.cr;
-    auto& ownedDeviceContext  = state.ownedDeviceContext;
-    auto& deviceStreamManager = state.deviceStreamManager;
-    auto& nvshmemManager      = state.nvshmemManager;
-    auto& bEnableFPE          = state.bEnableFPE;
-    auto& mdAtoms             = state.mdAtoms;
-    auto& enforcedRotation    = state.enforcedRotation;
-    auto& swap                = state.swap;
-    auto& constr              = state.constr;
-    auto& enerd               = state.enerd;
-    auto& ekind               = state.ekind;
-    auto& imdSession          = state.imdSession;
-    auto& stateGpu            = state.stateGpu;
-    auto& simulator           = state.simulator;
-    // Only used with thread-MPI
-    [[maybe_unused]] auto& mpiCommSimulation = *state.mpiCommSimulation;
+    MdrunnerState& state = *ownedState;
+    auto&          fplog = state.fplog;
+    auto&          cr    = state.cr;
 
     /* Does what it says */
     print_date_and_time(fplog, cr->commMyGroup.rank(), "Finished mdrun", gmx_gettime());
 
+    // Take out what is needed after the state is destroyed
+    PhysicalNodeCommunicator    physicalNodeComm     = std::move(*state.physicalNodeComm);
+    gmx_walltime_accounting_t   walltime_accounting  = state.walltime_accounting;
+    const bool                  bEnableFPE           = state.bEnableFPE;
+    [[maybe_unused]] const bool isMainSimulationRank = state.mpiCommSimulation->isMainRank();
+
     try
     {
-        // Destroy the objects built for the run, newest first
-        simulator.reset(nullptr);
-        stateGpu.reset(nullptr);
-        imdSession.reset(nullptr);
-        ekind.reset();
-        enerd.reset();
-        constr.reset(nullptr);
-        swap.reset(nullptr);
-        enforcedRotation.reset(nullptr);
-
-        // FIXME: this is only here to manually unpin mdAtoms->chargeA_ and state->x,
-        // before we destroy the GPU context(s)
-        // Pinned buffers are associated with contexts in CUDA.
-        // As soon as we destroy GPU contexts after mdrunner() exits, these lines should go.
-        domdec.reset(nullptr);
-        // Destroy commRec, as it has references to domdec
-        commRec.reset(nullptr);
-        cr = nullptr;
-        mdAtoms.reset(nullptr);
-        globalState.reset(nullptr);
-        localStateInstance.reset(nullptr);
-        mdModules_.reset(nullptr); // destruct force providers here as they might also use the GPU
-        fr.reset(nullptr);         // destruct forcerec before gpu
-        // TODO convert to C++ so we can get rid of these frees
-        sfree(disresdata);
-
-        nvshmemManager.reset(nullptr);
-        // Destroy streams after all the structures using them
-        deviceStreamManager.reset(nullptr);
-        // Destroy the context after the streams
-        ownedDeviceContext.reset(nullptr);
+        // Destroy what mdrunner() set up, in the order MdrunnerState declares
+        ownedState.reset(nullptr);
 
         /* With tMPI we need to wait for all ranks to finish deallocation before
          * destroying the CUDA context as some tMPI ranks may be sharing
@@ -2690,7 +2662,7 @@ int Mdrunner::tearDown(MdrunnerState& state)
     /* we need to join all threads. The sub-threads join when they
        exit this function, but the main thread needs to be told to
        wait for that. */
-    if (mpiCommSimulation.isMainRank())
+    if (isMainSimulationRank)
     {
         tMPI_Finalize();
     }

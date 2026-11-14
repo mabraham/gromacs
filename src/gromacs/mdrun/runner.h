@@ -202,7 +202,7 @@ private:
     /*! \brief Destroys what mdrunner() set up, once the run is over.
      *
      * \returns The value for mdrunner() to return. */
-    int tearDown(MdrunnerState& state);
+    int tearDown(std::unique_ptr<MdrunnerState> ownedState);
 
     //! Parallelism-related user options.
     gmx_hw_opt_t hw_opt;
