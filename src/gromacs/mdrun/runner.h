@@ -199,6 +199,11 @@ private:
     /*! \brief Constructor. */
     explicit Mdrunner(std::unique_ptr<MDModules> mdModules);
 
+    /*! \brief Sets up a simulation for mdrunner() to run.
+     *
+     * With thread-MPI, this is also where the other ranks are spawned. */
+    void setUp(MdrunnerState& state);
+
     /*! \brief Runs the simulation that mdrunner() set up. */
     void run(MdrunnerState& state);
 

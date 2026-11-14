@@ -886,10 +886,16 @@ struct MdrunnerState
 
 int Mdrunner::mdrunner()
 {
-    auto           ownedState = std::make_unique<MdrunnerState>();
-    MdrunnerState& state      = *ownedState;
-    state.mdModules           = std::move(mdModules_);
-    auto& mdModules           = state.mdModules;
+    auto ownedState = std::make_unique<MdrunnerState>();
+    setUp(*ownedState);
+    run(*ownedState);
+    return tearDown(std::move(ownedState));
+} // Mdrunner::mdrunner
+
+void Mdrunner::setUp(MdrunnerState& state)
+{
+    state.mdModules = std::move(mdModules_);
+    auto& mdModules = state.mdModules;
 
     auto& fr                  = state.fr;
     auto& walltime_accounting = state.walltime_accounting;
@@ -2510,10 +2516,7 @@ int Mdrunner::mdrunner()
         }
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
-
-    run(state);
-    return tearDown(std::move(ownedState));
-} // Mdrunner::mdrunner
+} // Mdrunner::setUp
 
 void Mdrunner::run(MdrunnerState& state)
 {
