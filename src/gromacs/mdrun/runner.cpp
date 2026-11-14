@@ -895,10 +895,7 @@ int Mdrunner::mdrunner()
 void Mdrunner::setUp(MdrunnerState& state)
 {
     state.mdModules = std::move(mdModules_);
-    auto& mdModules = state.mdModules;
 
-    auto& fr                  = state.fr;
-    auto& walltime_accounting = state.walltime_accounting;
 
     real         ewaldcoeff_q     = 0;
     real         ewaldcoeff_lj    = 0;
@@ -907,7 +904,6 @@ void Mdrunner::setUp(MdrunnerState& state)
 
     /* CAUTION: threads may be started later on in this function, so
        cr doesn't reflect the final parallel state right now */
-    auto& mtop = state.mtop;
 
     /* TODO: inputrec should tell us whether we use an algorithm, not a file option */
     const bool doEssentialDynamics = opt2bSet("-ei", filenames.size(), filenames.data());
@@ -931,33 +927,29 @@ void Mdrunner::setUp(MdrunnerState& state)
     auto bondedTarget      = findTaskTarget(bonded_opt);
     auto updateTarget      = findTaskTarget(update_opt);
 
-    auto& fplog = state.fplog;
     // If we are appending, we don't write log output because we need
     // to check that the old log file matches what the checkpoint file
     // expects. Otherwise, we should start to write log output now if
     // there is a file ready for it.
     if (logFileHandle != nullptr && startingBehavior != StartingBehavior::RestartWithAppending)
     {
-        fplog = gmx_fio_getfp(logFileHandle);
+        state.fplog = gmx_fio_getfp(logFileHandle);
     }
     const bool isSimulationMainRank = findIsSimulationMainRank(ms, simulationCommunicator);
-    auto&      logOwner = state.logOwner.emplace(buildLogger(fplog, isSimulationMainRank));
-    auto&      mdlog    = state.mdlog;
-    mdlog               = logOwner.logger();
+    state.logOwner.emplace(buildLogger(state.fplog, isSimulationMainRank));
+    state.mdlog = state.logOwner->logger();
 
-    gmx_print_detected_hardware(fplog, isSimulationMainRank && isMainSim(ms), mdlog, hwinfo_);
+    gmx_print_detected_hardware(state.fplog, isSimulationMainRank && isMainSim(ms), state.mdlog, hwinfo_);
 
     std::vector<int> availableDevices =
             makeListOfAvailableDevices(hwinfo_->deviceInfoList, hw_opt.devicesSelectedByUser);
     const int numAvailableDevices = gmx::ssize(availableDevices);
 
     // Print citation requests after all software/hardware printing
-    pleaseCiteGromacs(fplog);
+    pleaseCiteGromacs(state.fplog);
 
     // Note: legacy program logic relies on checking whether these pointers are assigned.
     // Objects may or may not be allocated later.
-    auto& inputrec    = state.inputrec;
-    auto& globalState = state.globalState;
 
     auto partialDeserializedTpr = std::make_unique<PartialDeserializedTprFile>();
 
@@ -965,22 +957,25 @@ void Mdrunner::setUp(MdrunnerState& state)
     {
         // Allocate objects to be initialized by later function calls.
         /* Only the main rank has the global state */
-        globalState = std::make_unique<t_state>();
-        inputrec    = std::make_unique<t_inputrec>();
+        state.globalState = std::make_unique<t_state>();
+        state.inputrec    = std::make_unique<t_inputrec>();
 
         /* Read (nearly) all data required for the simulation
          * and keep the partly serialized tpr contents to send to other ranks later
          */
-        applyGlobalSimulationState(
-                *inputHolder_.get(), partialDeserializedTpr.get(), globalState.get(), inputrec.get(), &mtop);
+        applyGlobalSimulationState(*inputHolder_.get(),
+                                   partialDeserializedTpr.get(),
+                                   state.globalState.get(),
+                                   state.inputrec.get(),
+                                   &state.mtop);
 
         static_assert(sc_trrMaxAtomCount == sc_checkpointMaxAtomCount);
-        if (mtop.natoms > sc_checkpointMaxAtomCount)
+        if (state.mtop.natoms > sc_checkpointMaxAtomCount)
         {
             gmx_fatal(FARGS,
                       "System has %d atoms, which is more than can be stored in checkpoint and trr "
                       "files (max %" PRId64 ")",
-                      mtop.natoms,
+                      state.mtop.natoms,
                       sc_checkpointMaxAtomCount);
         }
 
@@ -990,7 +985,7 @@ void Mdrunner::setUp(MdrunnerState& state)
 
     /* Check and update the hardware options for internal consistency */
     checkAndUpdateHardwareOptions(
-            mdlog, &hw_opt, isSimulationMainRank, domdecOptions.numPmeRanks, inputrec.get());
+            state.mdlog, &hw_opt, isSimulationMainRank, domdecOptions.numPmeRanks, state.inputrec.get());
 
     if (GMX_THREAD_MPI && isSimulationMainRank)
     {
@@ -998,19 +993,19 @@ void Mdrunner::setUp(MdrunnerState& state)
         bool useGpuForPme       = false;
         try
         {
-            GMX_RELEASE_ASSERT(inputrec != nullptr, "Keep the compiler happy");
+            GMX_RELEASE_ASSERT(state.inputrec != nullptr, "Keep the compiler happy");
 
             // If the user specified the number of ranks, then we must
             // respect that, but in default mode, we need to allow for
             // the number of GPUs to choose the number of ranks.
             std::string gpuNonbondedNotSupportedReason;
             bool        canUseGpuForNonbonded =
-                    canUseGpusForNonbonded(*inputrec, doRerun, &gpuNonbondedNotSupportedReason);
+                    canUseGpusForNonbonded(*state.inputrec, doRerun, &gpuNonbondedNotSupportedReason);
             if (GMX_GPU && !canUseGpuForNonbonded)
             {
                 GMX_RELEASE_ASSERT(!gpuNonbondedNotSupportedReason.empty(),
                                    "A reason should have been given");
-                GMX_LOG(mdlog.warning).asParagraph().appendText(gpuNonbondedNotSupportedReason);
+                GMX_LOG(state.mdlog.warning).asParagraph().appendText(gpuNonbondedNotSupportedReason);
             }
             useGpuForNonbonded =
                     decideWhetherToUseGpusForNonbondedWithThreadMpi(nonbondedTarget,
@@ -1025,7 +1020,7 @@ void Mdrunner::setUp(MdrunnerState& state)
                                                                      pmeFftTarget,
                                                                      numAvailableDevices,
                                                                      userGpuTaskAssignment,
-                                                                     *inputrec,
+                                                                     *state.inputrec,
                                                                      hw_opt.nthreads_tmpi,
                                                                      domdecOptions.numPmeRanks);
         }
@@ -1041,9 +1036,9 @@ void Mdrunner::setUp(MdrunnerState& state)
                                                 numAvailableDevices,
                                                 useGpuForNonbonded,
                                                 useGpuForPme,
-                                                inputrec.get(),
-                                                mtop,
-                                                mdlog,
+                                                state.inputrec.get(),
+                                                state.mtop,
+                                                state.mdlog,
                                                 membedHolder.doMembed());
 
         // Now start the threads for thread MPI.
@@ -1054,13 +1049,12 @@ void Mdrunner::setUp(MdrunnerState& state)
 
     GMX_RELEASE_ASSERT(!GMX_MPI || ms || simulationCommunicator != MPI_COMM_NULL,
                        "Must have valid communicator unless running a multi-simulation");
-    auto& mpiCommSimulation = state.mpiCommSimulation.emplace(simulationCommunicator);
+    state.mpiCommSimulation.emplace(simulationCommunicator);
 
-    const bool simulationIsParallel = mpiCommSimulation.isParallel();
-    const bool isMainSimulationRank = mpiCommSimulation.isMainRank();
+    const bool simulationIsParallel = state.mpiCommSimulation->isParallel();
+    const bool isMainSimulationRank = state.mpiCommSimulation->isMainRank();
 
-    auto& physicalNodeComm =
-            state.physicalNodeComm.emplace(libraryWorldCommunicator, gmx_physicalnode_id_hash());
+    state.physicalNodeComm.emplace(libraryWorldCommunicator, gmx_physicalnode_id_hash());
 
     if (simulationIsParallel)
     {
@@ -1069,15 +1063,15 @@ void Mdrunner::setUp(MdrunnerState& state)
         {
             // Until now, only the main rank has a non-null pointer.
             // On non-main ranks, allocate the object that will receive data in the following call.
-            inputrec = std::make_unique<t_inputrec>();
+            state.inputrec = std::make_unique<t_inputrec>();
         }
-        init_parallel(mpiCommSimulation.comm(),
+        init_parallel(state.mpiCommSimulation->comm(),
                       isMainSimulationRank,
-                      inputrec.get(),
-                      &mtop,
+                      state.inputrec.get(),
+                      &state.mtop,
                       partialDeserializedTpr.get());
     }
-    GMX_RELEASE_ASSERT(inputrec != nullptr, "All ranks should have a valid inputrec now");
+    GMX_RELEASE_ASSERT(state.inputrec != nullptr, "All ranks should have a valid inputrec now");
     partialDeserializedTpr.reset(nullptr);
 
     // Note that these variables describe only their own node.
@@ -1099,40 +1093,45 @@ void Mdrunner::setUp(MdrunnerState& state)
         // assignment.
         std::string gpuNonbondedNotSupportedReason;
         bool        canUseGpuForNonbonded =
-                canUseGpusForNonbonded(*inputrec, doRerun, &gpuNonbondedNotSupportedReason);
+                canUseGpusForNonbonded(*state.inputrec, doRerun, &gpuNonbondedNotSupportedReason);
         if (GMX_GPU && !GMX_THREAD_MPI && !canUseGpuForNonbonded) // We already warned for threadMPI earlier
         {
             GMX_RELEASE_ASSERT(!gpuNonbondedNotSupportedReason.empty(),
                                "A reason should have been given");
-            GMX_LOG(mdlog.warning).asParagraph().appendText(gpuNonbondedNotSupportedReason);
+            GMX_LOG(state.mdlog.warning).asParagraph().appendText(gpuNonbondedNotSupportedReason);
         }
-        useGpuForNonbonded = decideWhetherToUseGpusForNonbonded(nonbondedTarget,
+        useGpuForNonbonded   = decideWhetherToUseGpusForNonbonded(nonbondedTarget,
                                                                 userGpuTaskAssignment,
                                                                 emulateGpuNonbonded,
                                                                 canUseGpuForNonbonded,
                                                                 mdrunOptions.reproducible,
                                                                 gpusWereDetected);
-        useGpuForNonbondedFE =
-                decideWhetherToUseGpusForNonbondedFE(useGpuForNonbonded, nonbondedFeTarget, *inputrec);
+        useGpuForNonbondedFE = decideWhetherToUseGpusForNonbondedFE(
+                useGpuForNonbonded, nonbondedFeTarget, *state.inputrec);
         useGpuForPme    = decideWhetherToUseGpusForPme(useGpuForNonbonded,
                                                     pmeTarget,
                                                     pmeFftTarget,
                                                     userGpuTaskAssignment,
-                                                    *inputrec,
-                                                    mpiCommSimulation.size(),
+                                                    *state.inputrec,
+                                                    state.mpiCommSimulation->size(),
                                                     domdecOptions.numPmeRanks,
                                                     gpusWereDetected);
-        useGpuForBonded = decideWhetherToUseGpusForBonded(
-                useGpuForNonbonded, useGpuForPme, bondedTarget, *inputrec, mtop, domdecOptions.numPmeRanks, gpusWereDetected);
+        useGpuForBonded = decideWhetherToUseGpusForBonded(useGpuForNonbonded,
+                                                          useGpuForPme,
+                                                          bondedTarget,
+                                                          *state.inputrec,
+                                                          state.mtop,
+                                                          domdecOptions.numPmeRanks,
+                                                          gpusWereDetected);
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
 
-    const PmeRunMode pmeRunMode = determinePmeRunMode(useGpuForPme, pmeFftTarget, *inputrec);
+    const PmeRunMode pmeRunMode = determinePmeRunMode(useGpuForPme, pmeFftTarget, *state.inputrec);
 
-    const bool useModularSimulator = ModularSimulator::isInputCompatible(mdlog,
-                                                                         inputrec.get(),
+    const bool useModularSimulator = ModularSimulator::isInputCompatible(state.mdlog,
+                                                                         state.inputrec.get(),
                                                                          doRerun,
-                                                                         mtop,
+                                                                         state.mtop,
                                                                          ms,
                                                                          replExParams,
                                                                          nullptr,
@@ -1146,10 +1145,10 @@ void Mdrunner::setUp(MdrunnerState& state)
     // without needing to communicate.
     // The LBFGS minimizer, test-particle insertion, normal modes and shell dynamics don't support DD
     const bool hasCustomParallelization =
-            (EI_TPI(inputrec->eI) || inputrec->eI == IntegrationAlgorithm::NM);
+            (EI_TPI(state.inputrec->eI) || state.inputrec->eI == IntegrationAlgorithm::NM);
     const bool canUseDomainDecomposition =
-            (inputrec->eI != IntegrationAlgorithm::LBFGS && !hasCustomParallelization
-             && gmx_mtop_particletype_count(mtop)[ParticleType::Shell] == 0);
+            (state.inputrec->eI != IntegrationAlgorithm::LBFGS && !hasCustomParallelization
+             && gmx_mtop_particletype_count(state.mtop)[ParticleType::Shell] == 0);
     GMX_RELEASE_ASSERT(!simulationIsParallel || hasCustomParallelization || canUseDomainDecomposition,
                        "A parallel run should not arrive here without DD support");
 
@@ -1163,11 +1162,10 @@ void Mdrunner::setUp(MdrunnerState& state)
     const bool useDomainDecomposition =
             canUseDomainDecomposition
             && (simulationIsParallel
-                || (!useGpuForNonbonded && usingFullElectrostatics(inputrec->coulombtype)
+                || (!useGpuForNonbonded && usingFullElectrostatics(state.inputrec->coulombtype)
                     && useDDWithSingleRank != 0)
                 || useDDWithSingleRank == 1);
 
-    auto& observablesReducerBuilder = state.observablesReducerBuilder;
 
     // Build restraints.
     // TODO: hide restraint implementation details from Mdrunner.
@@ -1177,23 +1175,23 @@ void Mdrunner::setUp(MdrunnerState& state)
     // TODO: capture all restraints into a single RestraintModule, passed to the runner builder.
     for (auto&& restraint : restraintManager_->getRestraints())
     {
-        mdModules->add(RestraintMDModule::sc_name,
-                       RestraintMDModule::create(restraint, restraint->sites()));
+        state.mdModules->add(RestraintMDModule::sc_name,
+                             RestraintMDModule::create(restraint, restraint->sites()));
     }
 
     // TODO: Error handling
-    mdModules->assignOptionsToModules(*inputrec->params, nullptr, inputrec.get());
+    state.mdModules->assignOptionsToModules(*state.inputrec->params, nullptr, state.inputrec.get());
     // now that the MDModules know their options, they know which callbacks to sign up to
-    mdModules->subscribeToSimulationSetupNotifications();
-    const auto& setupNotifier = mdModules->notifiers().simulationSetupNotifier_;
+    state.mdModules->subscribeToSimulationSetupNotifications();
+    const auto& setupNotifier = state.mdModules->notifiers().simulationSetupNotifier_;
 
     // Notify MdModules of existing logger
-    setupNotifier.notify(mdlog);
+    setupNotifier.notify(state.mdlog);
 
     // Notify MdModules of internal parameters, saved into KVT
-    if (inputrec->internalParameters != nullptr)
+    if (state.inputrec->internalParameters != nullptr)
     {
-        setupNotifier.notify(*inputrec->internalParameters);
+        setupNotifier.notify(*state.inputrec->internalParameters);
     }
 
     // Let MdModules know the .tpr input and .edr output filenames
@@ -1214,45 +1212,47 @@ void Mdrunner::setUp(MdrunnerState& state)
         setupNotifier.notify(plumedFilename);
     }
 
-    if (fplog != nullptr)
+    if (state.fplog != nullptr)
     {
-        pr_inputrec(fplog, 0, "Input Parameters", inputrec.get(), FALSE);
-        fprintf(fplog, "\n");
+        pr_inputrec(state.fplog, 0, "Input Parameters", state.inputrec.get(), FALSE);
+        fprintf(state.fplog, "\n");
     }
 
     if (isSimulationMainRank)
     {
         /* In rerun, set velocities to zero if present */
-        if (doRerun && globalState->hasEntry(StateEntry::V))
+        if (doRerun && state.globalState->hasEntry(StateEntry::V))
         {
             // rerun does not use velocities
-            GMX_LOG(mdlog.info)
+            GMX_LOG(state.mdlog.info)
                     .asParagraph()
                     .appendText(
                             "Rerun trajectory contains velocities. Rerun does only evaluate "
                             "potential energy and forces. The velocities will be ignored.");
-            for (int i = 0; i < globalState->numAtoms(); i++)
+            for (int i = 0; i < state.globalState->numAtoms(); i++)
             {
-                clear_rvec(globalState->v[i]);
+                clear_rvec(state.globalState->v[i]);
             }
-            globalState->setFlags(globalState->flags() & ~enumValueToBitMask(StateEntry::V));
+            state.globalState->setFlags(state.globalState->flags() & ~enumValueToBitMask(StateEntry::V));
         }
 
         /* now make sure the state is initialized and propagated */
-        set_state_entries(globalState.get(), inputrec.get(), useModularSimulator);
+        set_state_entries(state.globalState.get(), state.inputrec.get(), useModularSimulator);
     }
 
     /* NM and TPI parallelize over force/energy calculations, not atoms,
      * so we need to initialize and broadcast the global state.
      */
-    if (inputrec->eI == IntegrationAlgorithm::NM || inputrec->eI == IntegrationAlgorithm::TPI)
+    if (state.inputrec->eI == IntegrationAlgorithm::NM || state.inputrec->eI == IntegrationAlgorithm::TPI)
     {
         if (!isSimulationMainRank)
         {
-            globalState = std::make_unique<t_state>();
+            state.globalState = std::make_unique<t_state>();
         }
-        broadcastStateWithoutDynamics(
-                mpiCommSimulation.comm(), useDomainDecomposition, simulationIsParallel, globalState.get());
+        broadcastStateWithoutDynamics(state.mpiCommSimulation->comm(),
+                                      useDomainDecomposition,
+                                      simulationIsParallel,
+                                      state.globalState.get());
     }
 
     /* A parallel command line option consistency check that we can
@@ -1275,7 +1275,8 @@ void Mdrunner::setUp(MdrunnerState& state)
 #endif
     }
 
-    if (doRerun && (EI_ENERGY_MINIMIZATION(inputrec->eI) || IntegrationAlgorithm::NM == inputrec->eI))
+    if (doRerun
+        && (EI_ENERGY_MINIMIZATION(state.inputrec->eI) || IntegrationAlgorithm::NM == state.inputrec->eI))
     {
         gmx_fatal(FARGS,
                   "The .mdp file specified an energy minimization or normal mode algorithm, and "
@@ -1294,21 +1295,21 @@ void Mdrunner::setUp(MdrunnerState& state)
     t_disresdata* disresdata;
     snew(disresdata, 1);
     state.disresdata.reset(disresdata);
-    init_disres(fplog,
-                mtop,
-                inputrec.get(),
+    init_disres(state.fplog,
+                state.mtop,
+                state.inputrec.get(),
                 DisResRunMode::MDRun,
                 isSimulationMainRank ? DDRole::Main : DDRole::Agent,
                 simulationIsParallel ? NumRanks::Multiple : NumRanks::Single,
-                mpiCommSimulation.comm(),
+                state.mpiCommSimulation->comm(),
                 ms,
                 disresdata,
-                globalState.get(),
+                state.globalState.get(),
                 replExParams.exchangeInterval > 0);
 
-    if (gmx_mtop_ftype_count(mtop, InteractionFunction::OrientationRestraints) > 0 && isSimulationMainRank)
+    if (gmx_mtop_ftype_count(state.mtop, InteractionFunction::OrientationRestraints) > 0 && isSimulationMainRank)
     {
-        extendStateWithOriresHistory(mtop, *inputrec, globalState.get());
+        extendStateWithOriresHistory(state.mtop, *state.inputrec, state.globalState.get());
     }
 
 #if GMX_FAHCORE
@@ -1320,13 +1321,12 @@ void Mdrunner::setUp(MdrunnerState& state)
        the progress.
      */
     int gen_first_step = 0;
-    if (cr->commMySim.isMainRank())
+    if (state.cr->commMySim.isMainRank())
     {
-        gen_first_step = inputrec->init_step;
+        gen_first_step = state.inputrec->init_step;
     }
 #endif
 
-    auto& observablesHistory = state.observablesHistory;
 
     auto modularSimulatorCheckpointData = std::make_unique<ReadCheckpointDataHolder>();
     if (startingBehavior != StartingBehavior::NewSimulation)
@@ -1340,19 +1340,19 @@ void Mdrunner::setUp(MdrunnerState& state)
              * triggering the nsteps check in load_checkpoint().
              * This hack will go away soon when the -nsteps option is removed.
              */
-            inputrec->nsteps = -1;
+            state.inputrec->nsteps = -1;
         }
 
         // Finish applying initial simulation state information from external sources on all ranks.
         // Reconcile checkpoint file data with Mdrunner state established up to this point.
         applyLocalState(*inputHolder_.get(),
                         logFileHandle,
-                        mpiCommSimulation,
-                        inputrec.get(),
-                        globalState.get(),
-                        &observablesHistory,
+                        *state.mpiCommSimulation,
+                        state.inputrec.get(),
+                        state.globalState.get(),
+                        &state.observablesHistory,
                         mdrunOptions.reproducible,
-                        mdModules->notifiers(),
+                        state.mdModules->notifiers(),
                         modularSimulatorCheckpointData.get(),
                         useModularSimulator);
         // TODO: (#3652) Synchronize filesystem state, SimulationInput contents, and program
@@ -1368,26 +1368,26 @@ void Mdrunner::setUp(MdrunnerState& state)
         if (startingBehavior == StartingBehavior::RestartWithAppending && logFileHandle)
         {
             // Now we can start normal logging to the truncated log file.
-            fplog = gmx_fio_getfp(logFileHandle);
-            prepareLogAppending(fplog);
-            logOwner = buildLogger(fplog, isSimulationMainRank);
-            mdlog    = logOwner.logger();
+            state.fplog = gmx_fio_getfp(logFileHandle);
+            prepareLogAppending(state.fplog);
+            *state.logOwner = buildLogger(state.fplog, isSimulationMainRank);
+            state.mdlog     = state.logOwner->logger();
             // Provide the log file handle to the fatal error handler
-            gmx_fatal_set_log_file(fplog);
+            gmx_fatal_set_log_file(state.fplog);
             // A scope guard in mdrun handles clearing this when the log file is closed.
         }
     }
 
 #if GMX_FAHCORE
-    if (cr->commMySim.isMainRank())
+    if (state.cr->commMySim.isMainRank())
     {
-        fcRegisterSteps(inputrec->nsteps + inputrec->init_step, gen_first_step);
+        fcRegisterSteps(state.inputrec->nsteps + state.inputrec->init_step, gen_first_step);
     }
 #endif
 
     if (mdrunOptions.numStepsCommandline > -2)
     {
-        GMX_LOG(mdlog.info)
+        GMX_LOG(state.mdlog.info)
                 .asParagraph()
                 .appendText(
                         "The -nsteps functionality is deprecated, and may be removed in a future "
@@ -1396,20 +1396,20 @@ void Mdrunner::setUp(MdrunnerState& state)
                         "file field.");
     }
     /* override nsteps with value set on the commandline */
-    override_nsteps_cmdline(mdlog, mdrunOptions.numStepsCommandline, inputrec.get());
+    override_nsteps_cmdline(state.mdlog, mdrunOptions.numStepsCommandline, state.inputrec.get());
 
     matrix box;
     if (isSimulationMainRank)
     {
-        copy_mat(globalState->box, box);
+        copy_mat(state.globalState->box, box);
     }
 
     if (simulationIsParallel)
     {
-        gmx_bcast(sizeof(box), box, mpiCommSimulation.comm());
+        gmx_bcast(sizeof(box), box, state.mpiCommSimulation->comm());
     }
 
-    if (inputrec->cutoff_scheme != CutoffScheme::Verlet)
+    if (state.inputrec->cutoff_scheme != CutoffScheme::Verlet)
     {
         gmx_fatal(FARGS,
                   "This group-scheme .tpr file can no longer be run by mdrun. Please update to the "
@@ -1420,22 +1420,22 @@ void Mdrunner::setUp(MdrunnerState& state)
      * increase rlist) tries to check if the newly chosen value fits with the DD scheme. As this is
      * run before any DD scheme is set up, this check is never executed. See #3334 for more details.
      */
-    prepare_verlet_scheme(fplog,
-                          mpiCommSimulation,
-                          inputrec.get(),
-                          nstlist_cmdline,
-                          mtop,
-                          mpiCommSimulation.isMainRank() ? globalState->x : ArrayRef<const RVec>{},
-                          box,
-                          useGpuForNonbonded || (emulateGpuNonbonded == EmulateGpuNonbonded::Yes));
+    prepare_verlet_scheme(
+            state.fplog,
+            *state.mpiCommSimulation,
+            state.inputrec.get(),
+            nstlist_cmdline,
+            state.mtop,
+            state.mpiCommSimulation->isMainRank() ? state.globalState->x : ArrayRef<const RVec>{},
+            box,
+            useGpuForNonbonded || (emulateGpuNonbonded == EmulateGpuNonbonded::Yes));
 
     // We need to decide on update groups early, as this affects
     // inter-domain communication distances.
-    auto  updateGroupingsPerMoleculeTypeResult = makeUpdateGroupingsPerMoleculeType(mtop);
-    auto& updateGroups                         = state.updateGroups;
+    auto updateGroupingsPerMoleculeTypeResult = makeUpdateGroupingsPerMoleculeType(state.mtop);
     if (std::holds_alternative<std::string>(updateGroupingsPerMoleculeTypeResult))
     {
-        GMX_LOG(mdlog.warning)
+        GMX_LOG(state.mdlog.warning)
                 .asParagraph()
                 .appendTextFormatted("Update groups can not be used for this system because %s",
                                      std::get<std::string>(updateGroupingsPerMoleculeTypeResult).c_str());
@@ -1445,37 +1445,38 @@ void Mdrunner::setUp(MdrunnerState& state)
         auto updateGroupingsPerMoleculeType =
                 std::get<std::vector<RangePartitioning>>(updateGroupingsPerMoleculeTypeResult);
         const real maxUpdateGroupRadius = computeMaxUpdateGroupRadius(
-                mtop, updateGroupingsPerMoleculeType, maxReferenceTemperature(*inputrec));
-        const real cutoffMargin = std::sqrt(max_cutoff2(inputrec->pbcType, box)) - inputrec->rlist;
-        updateGroups            = makeUpdateGroups(mdlog,
-                                        std::move(updateGroupingsPerMoleculeType),
-                                        maxUpdateGroupRadius,
-                                        doRerun,
-                                        useDomainDecomposition,
-                                        systemHasConstraintsOrVsites(mtop),
-                                        cutoffMargin);
+                state.mtop, updateGroupingsPerMoleculeType, maxReferenceTemperature(*state.inputrec));
+        const real cutoffMargin =
+                std::sqrt(max_cutoff2(state.inputrec->pbcType, box)) - state.inputrec->rlist;
+        state.updateGroups = makeUpdateGroups(state.mdlog,
+                                              std::move(updateGroupingsPerMoleculeType),
+                                              maxUpdateGroupRadius,
+                                              doRerun,
+                                              useDomainDecomposition,
+                                              systemHasConstraintsOrVsites(state.mtop),
+                                              cutoffMargin);
     }
 
     try
     {
-        const bool haveFrozenAtoms = inputrecFrozenAtoms(inputrec.get());
+        const bool haveFrozenAtoms = inputrecFrozenAtoms(state.inputrec.get());
 
         useGpuForUpdate = decideWhetherToUseGpuForUpdate(
                 useDomainDecomposition,
-                updateGroups.useUpdateGroups(),
+                state.updateGroups.useUpdateGroups(),
                 pmeRunMode,
                 domdecOptions.numPmeRanks > 0,
                 useGpuForNonbonded,
                 updateTarget,
                 gpusWereDetected,
-                *inputrec,
-                mtop,
+                *state.inputrec,
+                state.mtop,
                 doEssentialDynamics,
-                gmx_mtop_ftype_count(mtop, InteractionFunction::OrientationRestraints) > 0,
+                gmx_mtop_ftype_count(state.mtop, InteractionFunction::OrientationRestraints) > 0,
                 haveFrozenAtoms,
                 useModularSimulator,
                 doRerun,
-                mdlog);
+                state.mdlog);
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
 
@@ -1486,16 +1487,16 @@ void Mdrunner::setUp(MdrunnerState& state)
     // library supported that.
     const bool canUseDirectGpuComm =
             decideWhetherDirectGpuCommunicationCanBeUsed(hwinfo_->minGpuAwareMpiStatus,
-                                                         inputrec->useMts,
+                                                         state.inputrec->useMts,
                                                          replExParams.exchangeInterval > 0,
-                                                         (inputrec->eSwapCoords != SwapType::No),
+                                                         (state.inputrec->eSwapCoords != SwapType::No),
                                                          gpusWereDetected,
-                                                         mdlog);
+                                                         state.mdlog);
 
     // Initialize development feature flags that enabled by environment variable
     // and report those features that are enabled.
     const DevelopmentFeatureFlags devFlags = manageDevelopmentFeatures(
-            mdlog, pmeRunMode, mpiCommSimulation.size(), domdecOptions.numPmeRanks, canUseDirectGpuComm);
+            state.mdlog, pmeRunMode, state.mpiCommSimulation->size(), domdecOptions.numPmeRanks, canUseDirectGpuComm);
 
     bool useGpuDirectHalo = false;
 
@@ -1504,28 +1505,28 @@ void Mdrunner::setUp(MdrunnerState& state)
         // domdecOptions.numPmeRanks == -1 results in 0 separate PME ranks when useGpuForNonbonded is true.
         // Todo: remove this assumption later once auto mode has support for separate PME rank
         const int numPmeRanks = domdecOptions.numPmeRanks > 0 ? domdecOptions.numPmeRanks : 0;
-        bool      havePPDomainDecomposition = (mpiCommSimulation.size() - numPmeRanks) > 1;
+        bool      havePPDomainDecomposition = (state.mpiCommSimulation->size() - numPmeRanks) > 1;
         useGpuDirectHalo = decideWhetherToUseGpuForHalo(havePPDomainDecomposition,
                                                         useGpuForNonbonded,
                                                         canUseDirectGpuComm,
                                                         useModularSimulator,
                                                         doRerun,
-                                                        EI_ENERGY_MINIMIZATION(inputrec->eI),
-                                                        mdlog);
+                                                        EI_ENERGY_MINIMIZATION(state.inputrec->eI),
+                                                        state.mdlog);
     }
 
     const bool haveFillerParticlesInLocalState = localStateHasFillerParticles(
-            mtop,
-            *inputrec,
+            state.mtop,
+            *state.inputrec,
             useDomainDecomposition,
-            !simulationIsParallel || mpiCommSimulation.size() - domdecOptions.numPmeRanks == 1,
+            !simulationIsParallel || state.mpiCommSimulation->size() - domdecOptions.numPmeRanks == 1,
             useGpuDirectHalo);
 
     if (haveFillerParticlesInLocalState && useDomainDecomposition
-        && mpiCommSimulation.size() - domdecOptions.numPmeRanks > 1
+        && state.mpiCommSimulation->size() - domdecOptions.numPmeRanks > 1
         && domdecOptions.dlbOption != DlbOption::no)
     {
-        GMX_LOG(mdlog.info)
+        GMX_LOG(state.mdlog.info)
                 .asParagraph()
                 .appendText(
                         "Turning off DLB, as the is not (yet) supported with direct halo exchange");
@@ -1546,18 +1547,18 @@ void Mdrunner::setUp(MdrunnerState& state)
         // perform well on multiple GPUs in any case, but it is important that our core functionality
         // (in particular for testing) does not break depending on GPU direct communication being enabled.
         ddBuilder = std::make_unique<DomainDecompositionBuilder>(
-                mdlog,
-                mpiCommSimulation,
+                state.mdlog,
+                *state.mpiCommSimulation,
                 domdecOptions,
                 mdrunOptions,
-                mtop,
-                *inputrec,
-                mdModules->notifiers(),
+                state.mtop,
+                *state.inputrec,
+                state.mdModules->notifiers(),
                 box,
-                updateGroups.updateGroupingPerMoleculeType(),
-                updateGroups.useUpdateGroups(),
-                updateGroups.maxUpdateGroupRadius(),
-                positionsFromStatePointer(globalState.get()),
+                state.updateGroups.updateGroupingPerMoleculeType(),
+                state.updateGroups.useUpdateGroups(),
+                state.updateGroups.maxUpdateGroupRadius(),
+                positionsFromStatePointer(state.globalState.get()),
                 useGpuForNonbonded,
                 useGpuForPme,
                 useGpuForUpdate,
@@ -1566,7 +1567,7 @@ void Mdrunner::setUp(MdrunnerState& state)
     }
     else
     {
-        if (inputrec->pbcType == PbcType::Screw)
+        if (state.inputrec->pbcType == PbcType::Screw)
         {
             gmx_fatal(FARGS, "pbc=screw is only implemented with domain decomposition");
         }
@@ -1578,7 +1579,7 @@ void Mdrunner::setUp(MdrunnerState& state)
             userGpuTaskAssignment,
             *hwinfo_,
             simulationCommunicator,
-            physicalNodeComm,
+            *state.physicalNodeComm,
             nonbondedTarget,
             nonbondedFeTarget,
             pmeTarget,
@@ -1589,7 +1590,7 @@ void Mdrunner::setUp(MdrunnerState& state)
             ddBuilder ? ddBuilder->thisRankHasPPDuty() : true,
             // TODO ddBuilder->thisRankHasPmeDuty should imply that a PME
             // algorithm is active, but currently does not.
-            usingPme(inputrec->coulombtype) && (ddBuilder ? ddBuilder->thisRankHasPmeDuty() : true));
+            usingPme(state.inputrec->coulombtype) && (ddBuilder ? ddBuilder->thisRankHasPmeDuty() : true));
 
     // Get the device handle for the modules on this rank, nullptr
     // when no task is assigned.
@@ -1605,40 +1606,37 @@ void Mdrunner::setUp(MdrunnerState& state)
     // become an MDModule that is made only when another module
     // requires it (e.g. pull, CompEl, density fitting), so that we
     // don't update the local atom sets unilaterally every step.
-    auto& atomSets = state.atomSets;
 
     // Local state and topology are declared (and perhaps constructed)
     // now, because DD needs them for the LocalTopologyChecker, but
     // they do not contain valid data until after the first DD
     // partition.
-    auto& localStateInstance = state.localStateInstance;
-    auto& localState         = state.localState;
-    auto& localTopology      = state.localTopology.emplace(mtop.ffparams);
+    state.localTopology.emplace(state.mtop.ffparams);
 
-    auto& domdec  = state.domdec;
-    auto& commRec = state.commRec;
     // When there is a PME rank to communicate with, contains settings
     // to build a PmePpComm object.
     std::optional<PmePpCommSettings> pmePpCommSettings;
 
     if (ddBuilder)
     {
-        localStateInstance = std::make_unique<t_state>();
-        localState         = localStateInstance.get();
+        state.localStateInstance = std::make_unique<t_state>();
+        state.localState         = state.localStateInstance.get();
         // TODO Pass the GPU streams to ddBuilder to use in buffer
         // transfers (e.g. halo exchange)
-        domdec = ddBuilder->build(&atomSets, haveFillerParticlesInLocalState, &observablesReducerBuilder);
-        pmePpCommSettings = ddBuilder->pmePpCommSettings(*domdec);
+        state.domdec = ddBuilder->build(
+                &state.atomSets, haveFillerParticlesInLocalState, &state.observablesReducerBuilder);
+        pmePpCommSettings = ddBuilder->pmePpCommSettings(*state.domdec);
         // The builder's job is done, so destruct it
         ddBuilder.reset(nullptr);
 
         // Report on hierarchical reductions, when active
-        if (const auto mesg = domdec->mpiComm().getHierarchicalReductionsReport(); mesg)
+        if (const auto mesg = state.domdec->mpiComm().getHierarchicalReductionsReport(); mesg)
         {
-            GMX_LOG(mdlog.info).asParagraph().appendText(*mesg);
+            GMX_LOG(state.mdlog.info).asParagraph().appendText(*mesg);
         }
 
-        commRec = std::make_unique<t_commrec>(domdec->mpiCommMySim(), domdec->mpiComm_, domdec.get());
+        state.commRec = std::make_unique<t_commrec>(
+                state.domdec->mpiCommMySim(), state.domdec->mpiComm_, state.domdec.get());
 
         // Note that local state still does not exist yet.
     }
@@ -1646,14 +1644,14 @@ void Mdrunner::setUp(MdrunnerState& state)
     {
         // Without DD, the local state is merely an alias to the global state,
         // so we don't need to allocate anything.
-        localState = globalState.get();
+        state.localState = state.globalState.get();
 
         // DD is inactive, so all ranks have all PP and PME duties
-        commRec = std::make_unique<t_commrec>(mpiCommSimulation, mpiCommSimulation, nullptr);
+        state.commRec = std::make_unique<t_commrec>(
+                *state.mpiCommSimulation, *state.mpiCommSimulation, nullptr);
     }
 
-    auto& cr = state.cr;
-    cr       = commRec.get();
+    state.cr = state.commRec.get();
 
     // Ensure that all atoms within the same update group are in the
     // same periodic image. Otherwise, a simulation that did not use
@@ -1662,10 +1660,11 @@ void Mdrunner::setUp(MdrunnerState& state)
     // (e.g. a multi-rank simulation).
     if (isSimulationMainRank)
     {
-        const bool useUpdateGroups = cr->dd ? ddUsesUpdateGroups(*cr->dd) : false;
+        const bool useUpdateGroups = state.cr->dd ? ddUsesUpdateGroups(*state.cr->dd) : false;
         if (useUpdateGroups)
         {
-            putUpdateGroupAtomsInSamePeriodicImage(*cr->dd, mtop, globalState->box, globalState->x);
+            putUpdateGroupAtomsInSamePeriodicImage(
+                    *state.cr->dd, state.mtop, state.globalState->box, state.globalState->x);
         }
     }
 
@@ -1673,105 +1672,106 @@ void Mdrunner::setUp(MdrunnerState& state)
     if (disableNonbondedCalculation)
     {
         /* turn off non-bonded calculations */
-        GMX_LOG(mdlog.warning)
+        GMX_LOG(state.mdlog.warning)
                 .asParagraph()
                 .appendText(
                         "Found environment variable GMX_NO_NONBONDED.\n"
                         "Disabling nonbonded calculations.");
     }
 
-    const NumPmeDomains numPmeDomains = getNumPmeDomains(cr->dd);
+    const NumPmeDomains numPmeDomains = getNumPmeDomains(state.cr->dd);
     const bool useGpuPmeDecomposition = numPmeDomains.x * numPmeDomains.y > 1 && useGpuForPme;
     GMX_RELEASE_ASSERT(!useGpuPmeDecomposition || devFlags.enableGpuPmeDecomposition,
                        "GPU PME decomposition works only in the cases where it is supported");
 
-    auto& runScheduleWork = state.runScheduleWork;
 
     // Also populates the simulation constant workload description.
     // Note: currently the default duty is DUTY_PP | DUTY_PME for all simulations, including those without PME,
     // so this boolean is sufficient on all ranks to determine whether separate PME ranks are used,
     // but this will no longer be the case if cr->duty is changed for !usingPme(fr->ic->eeltype).
-    const bool haveSeparatePmeRank = (thisRankHasPPDuty(cr->dd) != thisRankHasPmeDuty(cr->dd));
+    const bool haveSeparatePmeRank =
+            (thisRankHasPPDuty(state.cr->dd) != thisRankHasPmeDuty(state.cr->dd));
     // PME-only ranks don't call makeVirtualSitesHandler, so we count sc_ifcVirtualSite to have consistent simulationWork
-    const bool haveVirtualSites    = gmx_mtop_interaction_count(mtop, sc_ifcVirtualSite) > 0;
-    runScheduleWork.simulationWork = createSimulationWorkload(
-            mdlog,
-            *inputrec,
-            inputrecDynamicBox(inputrec.get()) || doRerun || inputrec->eI == IntegrationAlgorithm::Mimic,
-            replExParams.exchangeInterval > 0,
-            disableNonbondedCalculation,
-            devFlags,
-            haveFillerParticlesInLocalState,
-            havePPDomainDecomposition(cr->dd),
-            haveSeparatePmeRank,
-            haveVirtualSites,
-            useGpuForNonbonded,
-            useGpuForNonbondedFE,
-            pmeRunMode,
-            useGpuForBonded,
-            useGpuForUpdate,
-            useGpuDirectHalo,
-            canUseDirectGpuComm,
-            useGpuPmeDecomposition);
+    const bool haveVirtualSites = gmx_mtop_interaction_count(state.mtop, sc_ifcVirtualSite) > 0;
+    state.runScheduleWork.simulationWork =
+            createSimulationWorkload(state.mdlog,
+                                     *state.inputrec,
+                                     inputrecDynamicBox(state.inputrec.get()) || doRerun
+                                             || state.inputrec->eI == IntegrationAlgorithm::Mimic,
+                                     replExParams.exchangeInterval > 0,
+                                     disableNonbondedCalculation,
+                                     devFlags,
+                                     haveFillerParticlesInLocalState,
+                                     havePPDomainDecomposition(state.cr->dd),
+                                     haveSeparatePmeRank,
+                                     haveVirtualSites,
+                                     useGpuForNonbonded,
+                                     useGpuForNonbondedFE,
+                                     pmeRunMode,
+                                     useGpuForBonded,
+                                     useGpuForUpdate,
+                                     useGpuDirectHalo,
+                                     canUseDirectGpuComm,
+                                     useGpuPmeDecomposition);
 
     if (GMX_LIB_MPI && deviceInfo
-        && (runScheduleWork.simulationWork.useGpuDirectCommunication
-            || runScheduleWork.simulationWork.useGpuPmeDecomposition
-            || runScheduleWork.simulationWork.useGpuPmePpCommunication
-            || runScheduleWork.simulationWork.useGpuHaloExchange))
+        && (state.runScheduleWork.simulationWork.useGpuDirectCommunication
+            || state.runScheduleWork.simulationWork.useGpuPmeDecomposition
+            || state.runScheduleWork.simulationWork.useGpuPmePpCommunication
+            || state.runScheduleWork.simulationWork.useGpuHaloExchange))
     {
         doubleCheckGpuAwareMpiWillWork(*deviceInfo);
     }
 
-    GMX_LOG(mdlog.info)
+    GMX_LOG(state.mdlog.info)
             .asParagraph()
             .appendTextFormatted("Local state %s filler particles",
-                                 runScheduleWork.simulationWork.haveFillerParticlesInLocalState
+                                 state.runScheduleWork.simulationWork.haveFillerParticlesInLocalState
                                          ? "uses"
                                          : "does not use");
 
-    if (runScheduleWork.simulationWork.useGpuDirectCommunication
+    if (state.runScheduleWork.simulationWork.useGpuDirectCommunication
         && GpuConfigurationCapabilities::DisableEventCounting)
     {
         // Don't enable event counting with GPU Direct comm, see #3988.
         internal::disableGpuEventConsumptionCounting();
     }
 
-    const bool printHostName = (cr->commMySim.isParallel());
-    gpuTaskAssignments.reportGpuUsage(mdlog, printHostName, pmeRunMode, runScheduleWork.simulationWork);
+    const bool printHostName = (state.cr->commMySim.isParallel());
+    gpuTaskAssignments.reportGpuUsage(
+            state.mdlog, printHostName, pmeRunMode, state.runScheduleWork.simulationWork);
 
     // The context outlives the stream manager and everything else
     // that uses the device.
-    auto& ownedDeviceContext  = state.ownedDeviceContext;
-    auto& deviceStreamManager = state.deviceStreamManager;
 
     if (deviceInfo != nullptr)
     {
-        if (runScheduleWork.simulationWork.havePpDomainDecomposition && thisRankHasPPDuty(cr->dd))
+        if (state.runScheduleWork.simulationWork.havePpDomainDecomposition
+            && thisRankHasPPDuty(state.cr->dd))
         {
-            dd_setup_dlb_resource_sharing(cr, uniqueDeviceId(*deviceInfo));
+            dd_setup_dlb_resource_sharing(state.cr, uniqueDeviceId(*deviceInfo));
         }
-        const bool useGpuTiming = decideGpuTimingsUsage();
-        ownedDeviceContext      = std::make_unique<DeviceContext>(*deviceInfo);
-        deviceStreamManager     = std::make_unique<DeviceStreamManager>(
-                *ownedDeviceContext, runScheduleWork.simulationWork, useGpuTiming);
+        const bool useGpuTiming   = decideGpuTimingsUsage();
+        state.ownedDeviceContext  = std::make_unique<DeviceContext>(*deviceInfo);
+        state.deviceStreamManager = std::make_unique<DeviceStreamManager>(
+                *state.ownedDeviceContext, state.runScheduleWork.simulationWork, useGpuTiming);
 
-        localState->x = PaddedHostVector<RVec>(
-                localState->x,
-                makeHostAllocationPolicy(useGpuForPme || runScheduleWork.simulationWork.useGpuXBufferOpsWhenAllowed
+        state.localState->x = PaddedHostVector<RVec>(
+                state.localState->x,
+                makeHostAllocationPolicy(useGpuForPme || state.runScheduleWork.simulationWork.useGpuXBufferOpsWhenAllowed
                                                  || useGpuForUpdate,
-                                         deviceStreamManager.get()));
-        localState->v = PaddedHostVector<RVec>(
-                localState->v, makeHostAllocationPolicy(useGpuForUpdate, deviceStreamManager.get()));
+                                         state.deviceStreamManager.get()));
+        state.localState->v = PaddedHostVector<RVec>(
+                state.localState->v,
+                makeHostAllocationPolicy(useGpuForUpdate, state.deviceStreamManager.get()));
     }
 
-    auto& nvshmemManager = state.nvshmemManager;
-    if (runScheduleWork.simulationWork.useNvshmem)
+    if (state.runScheduleWork.simulationWork.useNvshmem)
     {
-        nvshmemManager = std::make_unique<NvshmemManager>(mdlog, cr->commMySim.comm());
+        state.nvshmemManager = std::make_unique<NvshmemManager>(state.mdlog, state.cr->commMySim.comm());
     }
 
-    if (havePPDomainDecomposition(cr->dd))
+    if (havePPDomainDecomposition(state.cr->dd))
     {
         // With GPU halo exchange and NVSHMEM, a particle-index buffer
         // must be pinned for H2D transfers, in which case this policy
@@ -1783,10 +1783,10 @@ void Mdrunner::setUp(MdrunnerState& state)
         // See domdec/cellsizes.cpp for explanation of the need for
         // propagation during container copy construction.
         const bool propagateDuringContainerCopyConstruction = true;
-        cr->dd->hostAllocationPolicy =
-                makeHostAllocationPolicy(runScheduleWork.simulationWork.useGpuHaloExchange
-                                                 and runScheduleWork.simulationWork.useNvshmem,
-                                         deviceStreamManager.get(),
+        state.cr->dd->hostAllocationPolicy =
+                makeHostAllocationPolicy(state.runScheduleWork.simulationWork.useGpuHaloExchange
+                                                 and state.runScheduleWork.simulationWork.useNvshmem,
+                                         state.deviceStreamManager.get(),
                                          propagateDuringContainerCopyConstruction);
     }
 
@@ -1794,13 +1794,13 @@ void Mdrunner::setUp(MdrunnerState& state)
     // where appropriate.
     if (!userGpuTaskAssignment.empty())
     {
-        gpuTaskAssignments.logPerformanceHints(mdlog, numAvailableDevices);
+        gpuTaskAssignments.logPerformanceHints(state.mdlog, numAvailableDevices);
     }
 
 #if GMX_MPI
     if (isMultiSim(ms))
     {
-        GMX_LOG(mdlog.warning)
+        GMX_LOG(state.mdlog.warning)
                 .asParagraph()
                 .appendTextFormatted(
                         "This is simulation %d out of %d running as a composite GROMACS\n"
@@ -1808,13 +1808,13 @@ void Mdrunner::setUp(MdrunnerState& state)
                         ms->simulationIndex_,
                         ms->numSimulations_);
     }
-    GMX_LOG(mdlog.warning)
+    GMX_LOG(state.mdlog.warning)
             .appendTextFormatted("Using %d MPI %s\n",
-                                 cr->commMySim.size(),
+                                 state.cr->commMySim.size(),
 #    if GMX_THREAD_MPI
-                                 cr->commMySim.isSerial() ? "thread" : "threads"
+                                 state.cr->commMySim.isSerial() ? "thread" : "threads"
 #    else
-                                 cr->commMySim.isSerial() ? "process" : "processes"
+                                 state.cr->commMySim.isSerial() ? "process" : "processes"
 #    endif
             );
     std::fflush(stderr);
@@ -1826,115 +1826,119 @@ void Mdrunner::setUp(MdrunnerState& state)
     // else, so we run this code both before and after we initialize
     // the OpenMP support.
     gmx_check_thread_affinity_set(
-            mdlog, &hw_opt, hwinfo_->hardwareTopology->maxThreads(), FALSE, libraryWorldCommunicator);
+            state.mdlog, &hw_opt, hwinfo_->hardwareTopology->maxThreads(), FALSE, libraryWorldCommunicator);
     /* Check and update the number of OpenMP threads requested */
-    checkAndUpdateRequestedNumOpenmpThreads(
-            &hw_opt, *hwinfo_, cr->commMySim, ms, physicalNodeComm.size_, pmeRunMode, mtop, *inputrec);
+    checkAndUpdateRequestedNumOpenmpThreads(&hw_opt,
+                                            *hwinfo_,
+                                            state.cr->commMySim,
+                                            ms,
+                                            state.physicalNodeComm->size_,
+                                            pmeRunMode,
+                                            state.mtop,
+                                            *state.inputrec);
 
-    gmx_omp_nthreads_init(mdlog,
-                          cr->commMySim,
+    gmx_omp_nthreads_init(state.mdlog,
+                          state.cr->commMySim,
                           haveSeparatePmeRank,
                           hwinfo_->hardwareTopology->maxThreads(),
-                          physicalNodeComm.size_,
+                          state.physicalNodeComm->size_,
                           hw_opt.nthreads_omp,
                           hw_opt.nthreads_omp_pme,
-                          !thisRankHasPPDuty(cr->dd));
+                          !thisRankHasPPDuty(state.cr->dd));
 
-    auto& bEnableFPE = state.bEnableFPE;
-    bEnableFPE       = gmxShouldEnableFPExceptions();
+    state.bEnableFPE = gmxShouldEnableFPExceptions();
     // FIXME - reconcile with gmx_feenableexcept() call from CommandLineModuleManager::run()
-    if (bEnableFPE)
+    if (state.bEnableFPE)
     {
         gmx_feenableexcept();
     }
 
     /* Now that we know the setup is consistent, check for efficiency */
     check_resource_division_efficiency(
-            hwinfo_, gpuTaskAssignments.thisRankHasAnyGpuTask(), &cr->commMySim, mdlog);
+            hwinfo_, gpuTaskAssignments.thisRankHasAnyGpuTask(), &state.cr->commMySim, state.mdlog);
 
     /* getting number of PP/PME threads on this MPI / tMPI rank.
        PME: env variable should be read only on one node to make sure it is
        identical everywhere;
      */
-    const int numThreadsOnThisRank = thisRankHasPPDuty(cr->dd)
+    const int numThreadsOnThisRank = thisRankHasPPDuty(state.cr->dd)
                                              ? gmx_omp_nthreads_get(ModuleMultiThread::Nonbonded)
                                              : gmx_omp_nthreads_get(ModuleMultiThread::Pme);
-    checkHardwareOversubscription(
-            numThreadsOnThisRank, cr->commMyGroup.rank(), *hwinfo_->hardwareTopology, physicalNodeComm, mdlog);
+    checkHardwareOversubscription(numThreadsOnThisRank,
+                                  state.cr->commMyGroup.rank(),
+                                  *hwinfo_->hardwareTopology,
+                                  *state.physicalNodeComm,
+                                  state.mdlog);
 
     // Enable Peer access between GPUs where available
     // Only for DD, only main PP rank needs to perform setup, and only if thread MPI plus
     // any of the GPU communication features are active.
-    if (haveDDAtomOrdering(*cr) && cr->commMySim.isMainRank() && thisRankHasPPDuty(cr->dd) && GMX_THREAD_MPI
-        && (runScheduleWork.simulationWork.useGpuHaloExchange
-            || runScheduleWork.simulationWork.useGpuPmePpCommunication))
+    if (haveDDAtomOrdering(*state.cr) && state.cr->commMySim.isMainRank()
+        && thisRankHasPPDuty(state.cr->dd) && GMX_THREAD_MPI
+        && (state.runScheduleWork.simulationWork.useGpuHaloExchange
+            || state.runScheduleWork.simulationWork.useGpuPmePpCommunication))
     {
-        setupGpuDevicePeerAccess(gpuTaskAssignments.deviceIdsAssigned(), mdlog);
+        setupGpuDevicePeerAccess(gpuTaskAssignments.deviceIdsAssigned(), state.mdlog);
     }
 
     if (mdrunOptions.timingOptions.resetStep > -1)
     {
-        GMX_LOG(mdlog.info)
+        GMX_LOG(state.mdlog.info)
                 .asParagraph()
                 .appendText(
                         "The -resetstep functionality is deprecated, and may be removed in a "
                         "future version.");
     }
-    auto& wcycle = state.wcycle;
-    wcycle       = wallcycle_init(fplog, mdrunOptions.timingOptions.resetStep, cr);
+    state.wcycle = wallcycle_init(state.fplog, mdrunOptions.timingOptions.resetStep, state.cr);
 
-    if (cr->commMySim.isParallel())
+    if (state.cr->commMySim.isParallel())
     {
         /* Main synchronizes its value of reset_counters with all nodes
          * including PME only nodes */
-        int64_t reset_counters = wcycle_get_reset_counters(wcycle.get());
-        gmx_bcast(sizeof(reset_counters), &reset_counters, cr->commMySim.comm());
-        wcycle_set_reset_counters(wcycle.get(), reset_counters);
+        int64_t reset_counters = wcycle_get_reset_counters(state.wcycle.get());
+        gmx_bcast(sizeof(reset_counters), &reset_counters, state.cr->commMySim.comm());
+        wcycle_set_reset_counters(state.wcycle.get(), reset_counters);
     }
 
     // Membrane embedding must be initialized before we call init_forcerec()
-    membedHolder.initializeMembed(fplog,
+    membedHolder.initializeMembed(state.fplog,
                                   filenames.size(),
                                   filenames.data(),
-                                  &mtop,
-                                  inputrec.get(),
-                                  globalState.get(),
-                                  cr,
+                                  &state.mtop,
+                                  state.inputrec.get(),
+                                  state.globalState.get(),
+                                  state.cr,
                                   &mdrunOptions.checkpointOptions.period);
 
     const bool thisRankHasPmeGpuTask = gpuTaskAssignments.thisRankHasPmeGpuTask();
 
-    auto& deform  = state.deform;
-    auto& mdAtoms = state.mdAtoms;
-    auto& vsite   = state.vsite;
 
-    auto& nrnb = state.nrnb;
-    if (thisRankHasPPDuty(cr->dd))
+    if (thisRankHasPPDuty(state.cr->dd))
     {
-        setupNotifier.notify(cr->commMyGroup);
+        setupNotifier.notify(state.cr->commMyGroup);
         setupNotifier.notify(ms);
-        setupNotifier.notify(&atomSets);
-        setupNotifier.notify(mtop);
-        setupNotifier.notify(inputrec->pbcType);
-        setupNotifier.notify(SimulationTimeStep{ inputrec->delta_t });
+        setupNotifier.notify(&state.atomSets);
+        setupNotifier.notify(state.mtop);
+        setupNotifier.notify(state.inputrec->pbcType);
+        setupNotifier.notify(SimulationTimeStep{ state.inputrec->delta_t });
         setupNotifier.notify(startingBehavior);
-        setupNotifier.notify(EnsembleTemperature{ *inputrec });
-        PlainPairlistRanges plainPairlistRanges(mtop, *inputrec);
+        setupNotifier.notify(EnsembleTemperature{ *state.inputrec });
+        PlainPairlistRanges plainPairlistRanges(state.mtop, *state.inputrec);
         setupNotifier.notify(&plainPairlistRanges);
         MDModulesDirectProvider mdModuleCoulombDirectProvider;
         setupNotifier.notify(&mdModuleCoulombDirectProvider);
 
         /* Initiate forcerecord */
-        if (deviceStreamManager != nullptr)
+        if (state.deviceStreamManager != nullptr)
         {
-            fr = std::make_unique<t_forcerec>(HostAllocationPolicy{ deviceStreamManager->context(),
-                                                                    PinningPolicy::PinnedIfSupported });
+            state.fr = std::make_unique<t_forcerec>(HostAllocationPolicy{
+                    state.deviceStreamManager->context(), PinningPolicy::PinnedIfSupported });
         }
         else
         {
-            fr = std::make_unique<t_forcerec>(HostAllocationPolicy{});
+            state.fr = std::make_unique<t_forcerec>(HostAllocationPolicy{});
         }
-        fr->forceProviders = mdModules->initForceProviders(wcycle.get());
+        state.fr->forceProviders = state.mdModules->initForceProviders(state.wcycle.get());
 
         std::optional<bool> anMDModuleProvidesDirectCoulomb = mdModuleCoulombDirectProvider.isDirectProvider;
         if (setupNotifier.haveSubscribers<MDModulesDirectProvider*>()
@@ -1952,24 +1956,24 @@ void Mdrunner::setUp(MdrunnerState& state)
                              "but direct interactions provider is reported."));
         }
 
-        logValidationMessages(mdlog,
-                              runScheduleWork.simulationWork,
+        logValidationMessages(state.mdlog,
+                              state.runScheduleWork.simulationWork,
                               haveFillerParticlesInLocalState,
                               fn2ftp(ftp2fn(efTRN, filenames.size(), filenames.data())) == efH5MD,
                               useModularSimulator,
-                              inputrec->eI,
+                              state.inputrec->eI,
                               deviceInfo);
 
-        init_forcerec(fplog,
-                      mdlog,
-                      runScheduleWork.simulationWork,
-                      fr.get(),
-                      *inputrec,
-                      mtop,
-                      cr,
+        init_forcerec(state.fplog,
+                      state.mdlog,
+                      state.runScheduleWork.simulationWork,
+                      state.fr.get(),
+                      *state.inputrec,
+                      state.mtop,
+                      state.cr,
                       ms,
-                      wcycle.get(),
-                      &nrnb,
+                      state.wcycle.get(),
+                      &state.nrnb,
                       box,
                       opt2fn("-table", filenames.size(), filenames.data()),
                       opt2fn("-tablep", filenames.size(), filenames.data()),
@@ -1978,18 +1982,19 @@ void Mdrunner::setUp(MdrunnerState& state)
                       anMDModuleProvidesDirectCoulomb);
 
         // Dirty hack, for fixing disres and orires should be made mdmodules
-        fr->fcdata->disres = disresdata;
-        if (gmx_mtop_ftype_count(mtop, InteractionFunction::OrientationRestraints) > 0)
+        state.fr->fcdata->disres = disresdata;
+        if (gmx_mtop_ftype_count(state.mtop, InteractionFunction::OrientationRestraints) > 0)
         {
-            fr->fcdata->orires = std::make_unique<t_oriresdata>(
-                    fplog, mtop, *inputrec, ms, globalState.get(), &atomSets);
+            state.fr->fcdata->orires = std::make_unique<t_oriresdata>(
+                    state.fplog, state.mtop, *state.inputrec, ms, state.globalState.get(), &state.atomSets);
         }
 
         // Now that all simulation setup notifications have been emitted,
         // set up the simulation run notification subscriptions
-        mdModules->subscribeToSimulationRunNotifications();
+        state.mdModules->subscribeToSimulationRunNotifications();
 
-        if (mdModules->notifiers().simulationRunNotifier_.haveSubscribers<const MDModulesPairlistConstructedSignal&>())
+        if (state.mdModules->notifiers()
+                    .simulationRunNotifier_.haveSubscribers<const MDModulesPairlistConstructedSignal&>())
         {
             if (plainPairlistRanges.ranges().empty())
             {
@@ -1998,167 +2003,179 @@ void Mdrunner::setUp(MdrunnerState& state)
                         "but no MDModules requested a range for the plain pairlist"));
             }
 
-            fr->plainPairlistRange = *std::max_element(plainPairlistRanges.ranges().begin(),
-                                                       plainPairlistRanges.ranges().end());
-            if (fr->plainPairlistRange.value() > inputrec->rlist)
+            state.fr->plainPairlistRange = *std::max_element(plainPairlistRanges.ranges().begin(),
+                                                             plainPairlistRanges.ranges().end());
+            if (state.fr->plainPairlistRange.value() > state.inputrec->rlist)
             {
                 // This is not nice. We could consider increasing rlist instead.
                 const std::string mesg = formatString(
                         "MDModules request a plain pairlist with a range of %f nm, which is larger "
                         "than the normal pairlist range of %f nm",
-                        fr->plainPairlistRange.value(),
-                        inputrec->rlist);
+                        state.fr->plainPairlistRange.value(),
+                        state.inputrec->rlist);
                 GMX_THROW(APIError(mesg));
             }
         }
 
-        deform = buildBoxDeformation(
-                globalState != nullptr ? createMatrix3x3FromLegacyMatrix(globalState->box)
-                                       : diagonalMatrix<real>(0.0),
-                cr->commMySim.isMainRank() ? DDRole::Main : DDRole::Agent,
-                cr->commMySim.isParallel() ? NumRanks::Multiple : NumRanks::Single,
-                cr->commMyGroup.comm(),
-                *inputrec);
+        state.deform = buildBoxDeformation(
+                state.globalState != nullptr ? createMatrix3x3FromLegacyMatrix(state.globalState->box)
+                                             : diagonalMatrix<real>(0.0),
+                state.cr->commMySim.isMainRank() ? DDRole::Main : DDRole::Agent,
+                state.cr->commMySim.isParallel() ? NumRanks::Multiple : NumRanks::Single,
+                state.cr->commMyGroup.comm(),
+                *state.inputrec);
 
         // Save a handle to device stream manager to use elsewhere in the code
         // TODO: Forcerec is not a correct place to store it.
-        fr->deviceStreamManager = deviceStreamManager.get();
+        state.fr->deviceStreamManager = state.deviceStreamManager.get();
 
-        if (runScheduleWork.simulationWork.haveSeparatePmeRank)
+        if (state.runScheduleWork.simulationWork.haveSeparatePmeRank)
         {
-            fr->pmePpComm =
-                    std::make_unique<PmePpComm>(cr->commMySim,
-                                                pmePpCommSettings->rankOfPartnerPmeRank,
-                                                fr->ic->vdw.type,
-                                                fr->ic->coulomb.type,
-                                                pmePpCommSettings->thisRankReceivesVirialAndEnergy,
-                                                runScheduleWork.simulationWork.useGpuPmePpCommunication,
-                                                runScheduleWork.simulationWork.useNvshmem,
-                                                deviceStreamManager.get());
+            state.fr->pmePpComm = std::make_unique<PmePpComm>(
+                    state.cr->commMySim,
+                    pmePpCommSettings->rankOfPartnerPmeRank,
+                    state.fr->ic->vdw.type,
+                    state.fr->ic->coulomb.type,
+                    pmePpCommSettings->thisRankReceivesVirialAndEnergy,
+                    state.runScheduleWork.simulationWork.useGpuPmePpCommunication,
+                    state.runScheduleWork.simulationWork.useNvshmem,
+                    state.deviceStreamManager.get());
         }
 
-        fr->nbv = init_nb_verlet(
-                mdlog,
-                *inputrec,
-                *fr,
-                cr->commMyGroup,
-                cr->dd,
+        state.fr->nbv = init_nb_verlet(
+                state.mdlog,
+                *state.inputrec,
+                *state.fr,
+                state.cr->commMyGroup,
+                state.cr->dd,
                 *hwinfo_,
-                runScheduleWork.simulationWork.useGpuNonbonded,
-                runScheduleWork.simulationWork.useGpuNonbondedFE,
-                runScheduleWork.simulationWork.useGpuUpdate,
-                deviceStreamManager.get(),
-                mtop,
-                runScheduleWork.simulationWork.haveFillerParticlesInLocalState,
-                (cr->dd && cr->dd->mpiComm().isParallel()) ? &observablesReducerBuilder : nullptr,
-                isSimulationMainRank ? globalState->x : ArrayRef<const RVec>{},
+                state.runScheduleWork.simulationWork.useGpuNonbonded,
+                state.runScheduleWork.simulationWork.useGpuNonbondedFE,
+                state.runScheduleWork.simulationWork.useGpuUpdate,
+                state.deviceStreamManager.get(),
+                state.mtop,
+                state.runScheduleWork.simulationWork.haveFillerParticlesInLocalState,
+                (state.cr->dd && state.cr->dd->mpiComm().isParallel()) ? &state.observablesReducerBuilder
+                                                                       : nullptr,
+                isSimulationMainRank ? state.globalState->x : ArrayRef<const RVec>{},
                 box,
-                wcycle.get());
+                state.wcycle.get());
         // TODO: Move the logic below to a GPU bonded builder
-        if (runScheduleWork.simulationWork.useGpuBonded)
+        if (state.runScheduleWork.simulationWork.useGpuBonded)
         {
-            GMX_RELEASE_ASSERT(deviceStreamManager != nullptr,
+            GMX_RELEASE_ASSERT(state.deviceStreamManager != nullptr,
                                "GPU device stream manager should be valid in order to use GPU "
                                "version of bonded forces.");
-            fr->listedForcesGpu =
-                    std::make_unique<ListedForcesGpu>(mtop.ffparams,
-                                                      fr->ic->coulomb.epsfac * fr->fudgeQQ,
-                                                      inputrec->opts.ngener - inputrec->nwall,
-                                                      deviceStreamManager->context(),
-                                                      deviceStreamManager->bondedStream(),
-                                                      wcycle.get());
+            state.fr->listedForcesGpu = std::make_unique<ListedForcesGpu>(
+                    state.mtop.ffparams,
+                    state.fr->ic->coulomb.epsfac * state.fr->fudgeQQ,
+                    state.inputrec->opts.ngener - state.inputrec->nwall,
+                    state.deviceStreamManager->context(),
+                    state.deviceStreamManager->bondedStream(),
+                    state.wcycle.get());
         }
-        fr->longRangeNonbondeds = std::make_unique<CpuPpLongRangeNonbondeds>(fr->n_tpi,
-                                                                             fr->ic->coulomb.ewaldCoeff,
-                                                                             fr->ic->coulomb.epsilon_r,
-                                                                             fr->qsum,
-                                                                             fr->ic->coulomb.type,
-                                                                             fr->ic->vdw.type,
-                                                                             *inputrec,
-                                                                             &nrnb,
-                                                                             wcycle.get(),
-                                                                             fplog);
+        state.fr->longRangeNonbondeds =
+                std::make_unique<CpuPpLongRangeNonbondeds>(state.fr->n_tpi,
+                                                           state.fr->ic->coulomb.ewaldCoeff,
+                                                           state.fr->ic->coulomb.epsilon_r,
+                                                           state.fr->qsum,
+                                                           state.fr->ic->coulomb.type,
+                                                           state.fr->ic->vdw.type,
+                                                           *state.inputrec,
+                                                           &state.nrnb,
+                                                           state.wcycle.get(),
+                                                           state.fplog);
 
         /* Initialize the mdAtoms structure.
          * mdAtoms is not filled with atom data,
          * as this can not be done yet with domain decomposition.
          */
-        mdAtoms = std::make_unique<MDAtoms>(
-                mtop, *inputrec, thisRankHasPmeGpuTask, useGpuForUpdate, deviceStreamManager.get());
-        if (fplog && inputrec->efep != FreeEnergyPerturbationType::No)
+        state.mdAtoms = std::make_unique<MDAtoms>(state.mtop,
+                                                  *state.inputrec,
+                                                  thisRankHasPmeGpuTask,
+                                                  useGpuForUpdate,
+                                                  state.deviceStreamManager.get());
+        if (state.fplog && state.inputrec->efep != FreeEnergyPerturbationType::No)
         {
-            fprintf(fplog,
+            fprintf(state.fplog,
                     "There are %d atoms and %d charges for free energy perturbation\n",
-                    mdAtoms->nPerturbed,
-                    mdAtoms->nChargePerturbed);
+                    state.mdAtoms->nPerturbed,
+                    state.mdAtoms->nChargePerturbed);
         }
-        if (globalState && thisRankHasPmeGpuTask)
+        if (state.globalState && thisRankHasPmeGpuTask)
         {
             // The pinning of coordinates in the global state object works, because we only use
             // PME on GPU without DD or on a separate PME rank, and because the local state pointer
             // points to the global state object without DD.
-            globalState->x = PaddedHostVector<RVec>(
-                    globalState->x,
-                    makeHostAllocationPolicy(thisRankHasPmeGpuTask, deviceStreamManager.get()));
+            state.globalState->x = PaddedHostVector<RVec>(
+                    state.globalState->x,
+                    makeHostAllocationPolicy(thisRankHasPmeGpuTask, state.deviceStreamManager.get()));
         }
 
         /* Initialize the virtual site communication */
-        vsite = makeVirtualSitesHandler(
-                mtop, cr->dd, fr->pbcType, updateGroups.updateGroupingPerMoleculeType());
+        state.vsite = makeVirtualSitesHandler(state.mtop,
+                                              state.cr->dd,
+                                              state.fr->pbcType,
+                                              state.updateGroups.updateGroupingPerMoleculeType());
         GMX_RELEASE_ASSERT(
-                (vsite != nullptr) == runScheduleWork.simulationWork.haveVirtualSites,
+                (state.vsite != nullptr) == state.runScheduleWork.simulationWork.haveVirtualSites,
                 "The virtual-site handler should only exist when the system has virtual sites");
 
-        calc_shifts(box, fr->shift_vec);
+        calc_shifts(box, state.fr->shift_vec);
 
         /* With periodic molecules the charge groups should be whole at start up
          * and the virtual sites should not be far from their proper positions.
          */
-        if (!inputrec->bContinuation && cr->commMySim.isMainRank()
-            && !(inputrec->pbcType != PbcType::No && inputrec->bPeriodicMols))
+        if (!state.inputrec->bContinuation && state.cr->commMySim.isMainRank()
+            && !(state.inputrec->pbcType != PbcType::No && state.inputrec->bPeriodicMols))
         {
             /* Make molecules whole at start of run */
-            if (fr->pbcType != PbcType::No)
+            if (state.fr->pbcType != PbcType::No)
             {
-                do_pbc_first_mtop(fplog,
-                                  inputrec->pbcType,
-                                  ir_haveBoxDeformation(*inputrec),
-                                  inputrec->deform,
+                do_pbc_first_mtop(state.fplog,
+                                  state.inputrec->pbcType,
+                                  ir_haveBoxDeformation(*state.inputrec),
+                                  state.inputrec->deform,
                                   box,
-                                  &mtop,
-                                  globalState->x,
-                                  globalState->v);
+                                  &state.mtop,
+                                  state.globalState->x,
+                                  state.globalState->v);
             }
-            if (vsite)
+            if (state.vsite)
             {
                 /* Correct initial vsite positions are required
                  * for the initial distribution in the domain decomposition
                  * and for the initial shell prediction.
                  */
-                constructVirtualSitesGlobal(mtop, globalState->x);
+                constructVirtualSitesGlobal(state.mtop, state.globalState->x);
             }
         }
         // Make the DD reverse topology, now that any vsites that are present are available
-        if (haveDDAtomOrdering(*cr))
+        if (haveDDAtomOrdering(*state.cr))
         {
-            dd_make_reverse_top(fplog, cr->dd, mtop, vsite.get(), *inputrec, domdecOptions.ddBondedChecking);
+            dd_make_reverse_top(state.fplog,
+                                state.cr->dd,
+                                state.mtop,
+                                state.vsite.get(),
+                                *state.inputrec,
+                                domdecOptions.ddBondedChecking);
         }
 
-        if (usingPme(fr->ic->coulomb.type) || usingLJPme(fr->ic->vdw.type))
+        if (usingPme(state.fr->ic->coulomb.type) || usingLJPme(state.fr->ic->vdw.type))
         {
-            ewaldcoeff_q  = fr->ic->coulomb.ewaldCoeff;
-            ewaldcoeff_lj = fr->ic->vdw.ewaldCoeff;
+            ewaldcoeff_q  = state.fr->ic->coulomb.ewaldCoeff;
+            ewaldcoeff_lj = state.fr->ic->vdw.ewaldCoeff;
         }
     }
     else
     {
         /* This is a PME only node */
 
-        GMX_ASSERT(globalState == nullptr,
+        GMX_ASSERT(state.globalState == nullptr,
                    "We don't need the state on a PME only rank and expect it to be uninitialized");
 
-        ewaldcoeff_q  = calc_ewaldcoeff_q(inputrec->rcoulomb, inputrec->ewald_rtol);
-        ewaldcoeff_lj = calc_ewaldcoeff_lj(inputrec->rvdw, inputrec->ewald_rtol_lj);
+        ewaldcoeff_q  = calc_ewaldcoeff_q(state.inputrec->rcoulomb, state.inputrec->ewald_rtol);
+        ewaldcoeff_lj = calc_ewaldcoeff_lj(state.inputrec->rvdw, state.inputrec->ewald_rtol_lj);
     }
 
     // TODO should live in ewald module once its testing is improved
@@ -2166,60 +2183,58 @@ void Mdrunner::setUp(MdrunnerState& state)
     // Later, this program could contain kernels that might be later
     // re-used as auto-tuning progresses, or subsequent simulations
     // are invoked.
-    auto& pmeGpuProgram = state.pmeGpuProgram;
     if (thisRankHasPmeGpuTask)
     {
         GMX_RELEASE_ASSERT(
-                (deviceStreamManager != nullptr),
+                (state.deviceStreamManager != nullptr),
                 "GPU device stream manager should be initialized in order to use GPU for PME.");
         GMX_RELEASE_ASSERT((deviceInfo != nullptr),
                            "GPU device should be initialized in order to use GPU for PME.");
-        pmeGpuProgram = buildPmeGpuProgram(deviceStreamManager->context());
+        state.pmeGpuProgram = buildPmeGpuProgram(state.deviceStreamManager->context());
     }
 
     /* Initiate PME if necessary,
      * either on all nodes or on dedicated PME nodes only. */
-    auto& pmedata = state.pmedata;
-    if (usingPme(inputrec->coulombtype) || usingLJPme(inputrec->vdwtype))
+    if (usingPme(state.inputrec->coulombtype) || usingLJPme(state.inputrec->vdwtype))
     {
-        if (mdAtoms)
+        if (state.mdAtoms)
         {
-            nChargePerturbed = mdAtoms->nChargePerturbed;
-            if (usingLJPme(inputrec->vdwtype))
+            nChargePerturbed = state.mdAtoms->nChargePerturbed;
+            if (usingLJPme(state.inputrec->vdwtype))
             {
-                nTypePerturbed = mdAtoms->nTypePerturbed;
+                nTypePerturbed = state.mdAtoms->nTypePerturbed;
             }
         }
-        if (cr->dd && cr->dd->numPmeOnlyRanks > 0)
+        if (state.cr->dd && state.cr->dd->numPmeOnlyRanks > 0)
         {
             /* The PME only nodes need to know nChargePerturbed(FEP on Q) and nTypePerturbed(FEP on LJ)*/
-            gmx_bcast(sizeof(nChargePerturbed), &nChargePerturbed, cr->commMySim.comm());
-            gmx_bcast(sizeof(nTypePerturbed), &nTypePerturbed, cr->commMySim.comm());
+            gmx_bcast(sizeof(nChargePerturbed), &nChargePerturbed, state.cr->commMySim.comm());
+            gmx_bcast(sizeof(nTypePerturbed), &nTypePerturbed, state.cr->commMySim.comm());
         }
 
-        if (thisRankHasPmeDuty(cr->dd))
+        if (thisRankHasPmeDuty(state.cr->dd))
         {
             try
             {
                 // TODO: This should be in the builder.
-                GMX_RELEASE_ASSERT(!runScheduleWork.simulationWork.useGpuPme
-                                           || (deviceStreamManager != nullptr),
+                GMX_RELEASE_ASSERT(!state.runScheduleWork.simulationWork.useGpuPme
+                                           || (state.deviceStreamManager != nullptr),
                                    "Device stream manager should be valid in order to use GPU "
                                    "version of PME.");
                 GMX_RELEASE_ASSERT(
-                        !runScheduleWork.simulationWork.useGpuPme
-                                || deviceStreamManager->streamIsValid(DeviceStreamType::Pme),
+                        !state.runScheduleWork.simulationWork.useGpuPme
+                                || state.deviceStreamManager->streamIsValid(DeviceStreamType::Pme),
                         "GPU PME stream should be valid in order to use GPU version of PME.");
 
-                const DeviceContext* deviceContext = runScheduleWork.simulationWork.useGpuPme
-                                                             ? &deviceStreamManager->context()
+                const DeviceContext* deviceContext = state.runScheduleWork.simulationWork.useGpuPme
+                                                             ? &state.deviceStreamManager->context()
                                                              : nullptr;
                 const DeviceStream*  pmeStream =
-                        runScheduleWork.simulationWork.useGpuPme
-                                 ? &deviceStreamManager->stream(DeviceStreamType::Pme)
+                        state.runScheduleWork.simulationWork.useGpuPme
+                                 ? &state.deviceStreamManager->stream(DeviceStreamType::Pme)
                                  : nullptr;
 
-                const t_inputrec* ir = inputrec.get();
+                const t_inputrec* ir = state.inputrec.get();
                 /* For each atom we allow a relative (cut-off) error of up to ewald_rtol.
                  * Thus we can also tolerate an error of an order of magnitude less due to
                  * atoms being slightly outside the halo extent. This will only cause a fraction
@@ -2227,29 +2242,29 @@ void Mdrunner::setUp(MdrunnerState& state)
                  * chance per atom (ChanceTarget::Atom) to be outside the halo extent.
                  */
                 const real haloExtentForAtomDisplacement =
-                        updateGroups.maxUpdateGroupRadius()
-                        + minCellSizeForAtomDisplacement(mtop,
+                        state.updateGroups.maxUpdateGroupRadius()
+                        + minCellSizeForAtomDisplacement(state.mtop,
                                                          *ir,
-                                                         updateGroups.updateGroupingPerMoleculeType(),
+                                                         state.updateGroups.updateGroupingPerMoleculeType(),
                                                          ir->ewald_rtol,
                                                          ChanceTarget::Atom);
 
-                pmedata = gmx_pme_init(cr->dd,
-                                       getNumPmeDomains(cr->dd),
-                                       ir,
-                                       box,
-                                       haloExtentForAtomDisplacement,
-                                       nChargePerturbed != 0,
-                                       nTypePerturbed != 0,
-                                       mdrunOptions.reproducible,
-                                       ewaldcoeff_q,
-                                       ewaldcoeff_lj,
-                                       gmx_omp_nthreads_get(ModuleMultiThread::Pme),
-                                       pmeRunMode,
-                                       deviceContext,
-                                       pmeStream,
-                                       pmeGpuProgram.get(),
-                                       mdlog);
+                state.pmedata = gmx_pme_init(state.cr->dd,
+                                             getNumPmeDomains(state.cr->dd),
+                                             ir,
+                                             box,
+                                             haloExtentForAtomDisplacement,
+                                             nChargePerturbed != 0,
+                                             nTypePerturbed != 0,
+                                             mdrunOptions.reproducible,
+                                             ewaldcoeff_q,
+                                             ewaldcoeff_lj,
+                                             gmx_omp_nthreads_get(ModuleMultiThread::Pme),
+                                             pmeRunMode,
+                                             deviceContext,
+                                             pmeStream,
+                                             state.pmeGpuProgram.get(),
+                                             state.mdlog);
             }
             GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
         }
@@ -2265,16 +2280,21 @@ void Mdrunner::setUp(MdrunnerState& state)
          * since we first checked).
          */
         gmx_check_thread_affinity_set(
-                mdlog, &hw_opt, hwinfo_->hardwareTopology->maxThreads(), TRUE, libraryWorldCommunicator);
+                state.mdlog, &hw_opt, hwinfo_->hardwareTopology->maxThreads(), TRUE, libraryWorldCommunicator);
     }
     {
         /* We always call gmx_set_thread_affinity since it might want to write things to log
          * even with ThreadAffinity::Off */
-        gmx_set_thread_affinity(
-                mdlog, cr->commMySim, physicalNodeComm, &hw_opt, *hwinfo_->hardwareTopology, numThreadsOnThisRank, nullptr);
+        gmx_set_thread_affinity(state.mdlog,
+                                state.cr->commMySim,
+                                *state.physicalNodeComm,
+                                &hw_opt,
+                                *hwinfo_->hardwareTopology,
+                                numThreadsOnThisRank,
+                                nullptr);
     }
 
-    if (EI_DYNAMICS(inputrec->eI))
+    if (EI_DYNAMICS(state.inputrec->eI))
     {
         /* Turn on signal handling on all nodes */
         /*
@@ -2286,233 +2306,238 @@ void Mdrunner::setUp(MdrunnerState& state)
 
     // Objects built for the run. They outlive the try block that
     // builds them, so the simulator can be run from a separate one.
-    auto& pull_work        = state.pull_work;
-    auto& enforcedRotation = state.enforcedRotation;
-    auto& swap             = state.swap;
-    auto& constr           = state.constr;
-    auto& enerd            = state.enerd;
-    auto& ekind            = state.ekind;
-    auto& imdSession       = state.imdSession;
-    auto& stateGpu         = state.stateGpu;
-    auto& simulator        = state.simulator;
     try
     {
-        if (thisRankHasPPDuty(cr->dd))
+        if (thisRankHasPPDuty(state.cr->dd))
         {
             // Give ownership to the forcerec for the actual workload
-            fr->pmedata = std::move(pmedata);
+            state.fr->pmedata = std::move(state.pmedata);
             /* Assumes uniform use of the number of OpenMP threads */
-            walltime_accounting =
+            state.walltime_accounting =
                     walltime_accounting_init(gmx_omp_nthreads_get(ModuleMultiThread::Default));
 
-            if (inputrec->bPull)
+            if (state.inputrec->bPull)
             {
                 /* Initialize pull code */
-                pull_work = init_pull(fplog,
-                                      inputrec->pull.get(),
-                                      inputrec.get(),
-                                      mtop,
-                                      cr->commMyGroup,
-                                      cr->dd,
-                                      &atomSets,
-                                      inputrec->fepvals->init_lambda_without_states);
-                if (inputrec->pull->bXOutAverage || inputrec->pull->bFOutAverage)
+                state.pull_work = init_pull(state.fplog,
+                                            state.inputrec->pull.get(),
+                                            state.inputrec.get(),
+                                            state.mtop,
+                                            state.cr->commMyGroup,
+                                            state.cr->dd,
+                                            &state.atomSets,
+                                            state.inputrec->fepvals->init_lambda_without_states);
+                if (state.inputrec->pull->bXOutAverage || state.inputrec->pull->bFOutAverage)
                 {
-                    initPullHistory(pull_work, &observablesHistory);
+                    initPullHistory(state.pull_work, &state.observablesHistory);
                 }
-                if (EI_DYNAMICS(inputrec->eI) && cr->commMySim.isMainRank())
+                if (EI_DYNAMICS(state.inputrec->eI) && state.cr->commMySim.isMainRank())
                 {
                     init_pull_output_files(
-                            pull_work, filenames.size(), filenames.data(), oenv, startingBehavior);
+                            state.pull_work, filenames.size(), filenames.data(), oenv, startingBehavior);
                 }
             }
 
-            if (inputrec->bRot)
+            if (state.inputrec->bRot)
             {
                 /* Initialize enforced rotation code */
-                enforcedRotation = init_rot(fplog,
-                                            inputrec.get(),
-                                            filenames.size(),
-                                            filenames.data(),
-                                            cr->commMyGroup,
-                                            &atomSets,
-                                            globalState.get(),
-                                            mtop,
-                                            oenv,
-                                            mdrunOptions,
-                                            startingBehavior);
+                state.enforcedRotation = init_rot(state.fplog,
+                                                  state.inputrec.get(),
+                                                  filenames.size(),
+                                                  filenames.data(),
+                                                  state.cr->commMyGroup,
+                                                  &state.atomSets,
+                                                  state.globalState.get(),
+                                                  state.mtop,
+                                                  oenv,
+                                                  mdrunOptions,
+                                                  startingBehavior);
             }
 
-            if (inputrec->eSwapCoords != SwapType::No)
+            if (state.inputrec->eSwapCoords != SwapType::No)
             {
                 /* Initialize ion swapping code */
-                swap = init_swapcoords(fplog,
-                                       inputrec.get(),
-                                       opt2fn_main("-swap", filenames.size(), filenames.data(), cr),
-                                       mtop,
-                                       globalState.get(),
-                                       &observablesHistory,
-                                       cr->commMyGroup,
-                                       cr->dd,
-                                       &atomSets,
-                                       oenv,
-                                       mdrunOptions,
-                                       startingBehavior);
+                state.swap = init_swapcoords(
+                        state.fplog,
+                        state.inputrec.get(),
+                        opt2fn_main("-swap", filenames.size(), filenames.data(), state.cr),
+                        state.mtop,
+                        state.globalState.get(),
+                        &state.observablesHistory,
+                        state.cr->commMyGroup,
+                        state.cr->dd,
+                        &state.atomSets,
+                        oenv,
+                        mdrunOptions,
+                        startingBehavior);
             }
 
             /* Let makeConstraints know whether we have essential dynamics constraints. */
-            const bool hasMassPerturbedAtoms = haveFepPerturbedMasses(mtop);
-            constr                           = makeConstraints(
-                    mtop,
-                    *inputrec,
-                    pull_work,
-                    pull_work != nullptr ? pull_have_constraint(*pull_work) : false,
+            const bool hasMassPerturbedAtoms = haveFepPerturbedMasses(state.mtop);
+            state.constr                     = makeConstraints(
+                    state.mtop,
+                    *state.inputrec,
+                    state.pull_work,
+                    state.pull_work != nullptr ? pull_have_constraint(*state.pull_work) : false,
                     doEssentialDynamics,
-                    fplog,
-                    cr->commMyGroup,
-                    cr->dd,
-                    updateGroups.useUpdateGroups(),
+                    state.fplog,
+                    state.cr->commMyGroup,
+                    state.cr->dd,
+                    state.updateGroups.useUpdateGroups(),
                     hasMassPerturbedAtoms,
                     ms,
-                    &nrnb,
-                    wcycle.get(),
-                    fr->bMolPBC,
-                    (cr->dd && cr->dd->mpiComm().isParallel()) ? &observablesReducerBuilder : nullptr);
+                    &state.nrnb,
+                    state.wcycle.get(),
+                    state.fr->bMolPBC,
+                    (state.cr->dd && state.cr->dd->mpiComm().isParallel()) ? &state.observablesReducerBuilder
+                                                                                               : nullptr);
 
             /* Energy terms and groups */
-            enerd.emplace(mtop.groups.groups[SimulationAtomGroupType::EnergyOutput].size(),
-                          &inputrec->fepvals->all_lambda);
+            state.enerd.emplace(state.mtop.groups.groups[SimulationAtomGroupType::EnergyOutput].size(),
+                                &state.inputrec->fepvals->all_lambda);
 
             // cos acceleration is only supported by md, but older tpr
             // files might still combine it with other integrators
-            GMX_RELEASE_ASSERT(inputrec->cos_accel == 0.0 || inputrec->eI == IntegrationAlgorithm::MD,
+            GMX_RELEASE_ASSERT(state.inputrec->cos_accel == 0.0
+                                       || state.inputrec->eI == IntegrationAlgorithm::MD,
                                "cos_acceleration is only supported by integrator=md");
 
             /* Kinetic energy data */
-            ekind.emplace(constArrayRefFromArray(inputrec->opts.ref_t, inputrec->opts.ngtc),
-                          inputrec->ensembleTemperatureSetting,
-                          inputrec->ensembleTemperature,
-                          fr->haveBoxDeformation,
-                          inputrec->cos_accel,
-                          gmx_omp_nthreads_get(ModuleMultiThread::Update));
+            state.ekind.emplace(
+                    constArrayRefFromArray(state.inputrec->opts.ref_t, state.inputrec->opts.ngtc),
+                    state.inputrec->ensembleTemperatureSetting,
+                    state.inputrec->ensembleTemperature,
+                    state.fr->haveBoxDeformation,
+                    state.inputrec->cos_accel,
+                    gmx_omp_nthreads_get(ModuleMultiThread::Update));
 
             /* Set up interactive MD (IMD) */
-            imdSession = makeImdSession(inputrec.get(),
-                                        cr->commMyGroup,
-                                        cr->dd,
-                                        wcycle.get(),
-                                        &enerd.value(),
-                                        ms,
-                                        mtop,
-                                        mdlog,
-                                        cr->commMySim.isMainRank() ? globalState->x : ArrayRef<RVec>{},
-                                        filenames.size(),
-                                        filenames.data(),
-                                        oenv,
-                                        mdrunOptions.imdOptions,
-                                        startingBehavior);
+            state.imdSession = makeImdSession(
+                    state.inputrec.get(),
+                    state.cr->commMyGroup,
+                    state.cr->dd,
+                    state.wcycle.get(),
+                    &state.enerd.value(),
+                    ms,
+                    state.mtop,
+                    state.mdlog,
+                    state.cr->commMySim.isMainRank() ? state.globalState->x : ArrayRef<RVec>{},
+                    filenames.size(),
+                    filenames.data(),
+                    oenv,
+                    mdrunOptions.imdOptions,
+                    startingBehavior);
 
-            if (haveDDAtomOrdering(*cr))
+            if (haveDDAtomOrdering(*state.cr))
             {
-                GMX_RELEASE_ASSERT(fr, "fr was NULL while cr->duty was DUTY_PP");
+                GMX_RELEASE_ASSERT(state.fr, "fr was NULL while cr->duty was DUTY_PP");
                 /* This call is not included in init_domain_decomposition
                  * because fr->atomInfoForEachMoleculeBlock is set later.
                  */
-                makeBondedLinks(cr->dd, mtop, fr->atomInfoForEachMoleculeBlock);
+                makeBondedLinks(state.cr->dd, state.mtop, state.fr->atomInfoForEachMoleculeBlock);
             }
 
-            if (runScheduleWork.simulationWork.useGpuFBufferOpsWhenAllowed)
+            if (state.runScheduleWork.simulationWork.useGpuFBufferOpsWhenAllowed)
             {
-                fr->gpuForceReduction[AtomLocality::Local] = std::make_unique<GpuForceReduction>(
-                        deviceStreamManager->context(),
-                        deviceStreamManager->stream(DeviceStreamType::NonBondedLocal),
-                        wcycle.get());
+                state.fr->gpuForceReduction[AtomLocality::Local] = std::make_unique<GpuForceReduction>(
+                        state.deviceStreamManager->context(),
+                        state.deviceStreamManager->stream(DeviceStreamType::NonBondedLocal),
+                        state.wcycle.get());
 
-                if (runScheduleWork.simulationWork.havePpDomainDecomposition)
+                if (state.runScheduleWork.simulationWork.havePpDomainDecomposition)
                 {
-                    fr->gpuForceReduction[AtomLocality::NonLocal] = std::make_unique<GpuForceReduction>(
-                            deviceStreamManager->context(),
-                            deviceStreamManager->stream(DeviceStreamType::NonBondedNonLocal),
-                            wcycle.get());
+                    state.fr->gpuForceReduction[AtomLocality::NonLocal] = std::make_unique<GpuForceReduction>(
+                            state.deviceStreamManager->context(),
+                            state.deviceStreamManager->stream(DeviceStreamType::NonBondedNonLocal),
+                            state.wcycle.get());
                 }
 
-                if (runScheduleWork.simulationWork.useMdGpuGraph)
+                if (state.runScheduleWork.simulationWork.useMdGpuGraph)
                 {
-                    fr->mdGraph[MdGraphEvenOrOddStep::EvenStep] =
-                            std::make_unique<MdGpuGraph>(*fr->deviceStreamManager,
-                                                         runScheduleWork.simulationWork,
-                                                         cr->commMyGroup.comm(),
+                    state.fr->mdGraph[MdGraphEvenOrOddStep::EvenStep] =
+                            std::make_unique<MdGpuGraph>(*state.fr->deviceStreamManager,
+                                                         state.runScheduleWork.simulationWork,
+                                                         state.cr->commMyGroup.comm(),
                                                          MdGraphEvenOrOddStep::EvenStep,
-                                                         wcycle.get());
+                                                         state.wcycle.get());
 
-                    fr->mdGraph[MdGraphEvenOrOddStep::OddStep] =
-                            std::make_unique<MdGpuGraph>(*fr->deviceStreamManager,
-                                                         runScheduleWork.simulationWork,
-                                                         cr->commMyGroup.comm(),
+                    state.fr->mdGraph[MdGraphEvenOrOddStep::OddStep] =
+                            std::make_unique<MdGpuGraph>(*state.fr->deviceStreamManager,
+                                                         state.runScheduleWork.simulationWork,
+                                                         state.cr->commMyGroup.comm(),
                                                          MdGraphEvenOrOddStep::OddStep,
-                                                         wcycle.get());
+                                                         state.wcycle.get());
 
-                    fr->mdGraph[MdGraphEvenOrOddStep::EvenStep]->setAlternateStepPpTaskCompletionEvent(
-                            fr->mdGraph[MdGraphEvenOrOddStep::OddStep]->getPpTaskCompletionEvent());
-                    fr->mdGraph[MdGraphEvenOrOddStep::OddStep]->setAlternateStepPpTaskCompletionEvent(
-                            fr->mdGraph[MdGraphEvenOrOddStep::EvenStep]->getPpTaskCompletionEvent());
+                    state.fr->mdGraph[MdGraphEvenOrOddStep::EvenStep]->setAlternateStepPpTaskCompletionEvent(
+                            state.fr->mdGraph[MdGraphEvenOrOddStep::OddStep]->getPpTaskCompletionEvent());
+                    state.fr->mdGraph[MdGraphEvenOrOddStep::OddStep]->setAlternateStepPpTaskCompletionEvent(
+                            state.fr->mdGraph[MdGraphEvenOrOddStep::EvenStep]->getPpTaskCompletionEvent());
                 }
             }
 
-            if (gpusWereDetected && needStateGpu(runScheduleWork.simulationWork))
+            if (gpusWereDetected && needStateGpu(state.runScheduleWork.simulationWork))
             {
-                GpuApiCallBehavior transferKind =
-                        (inputrec->eI == IntegrationAlgorithm::MD && !doRerun && !useModularSimulator)
-                                ? GpuApiCallBehavior::Async
-                                : GpuApiCallBehavior::Sync;
-                GMX_RELEASE_ASSERT(deviceStreamManager != nullptr,
+                GpuApiCallBehavior transferKind = (state.inputrec->eI == IntegrationAlgorithm::MD
+                                                   && !doRerun && !useModularSimulator)
+                                                          ? GpuApiCallBehavior::Async
+                                                          : GpuApiCallBehavior::Sync;
+                GMX_RELEASE_ASSERT(state.deviceStreamManager != nullptr,
                                    "GPU device stream manager should be initialized to use GPU.");
-                stateGpu = std::make_unique<StatePropagatorDataGpu>(
-                        *deviceStreamManager,
+                state.stateGpu = std::make_unique<StatePropagatorDataGpu>(
+                        *state.deviceStreamManager,
                         transferKind,
-                        fr->pmedata ? pme_gpu_get_block_size(*fr->pmedata) : 0,
-                        runScheduleWork.simulationWork.useNvshmem,
-                        runScheduleWork.simulationWork.useGpuFBufferOpsWhenAllowed,
-                        cr->commMySim,
-                        wcycle.get());
-                fr->stateGpu = stateGpu.get();
+                        state.fr->pmedata ? pme_gpu_get_block_size(*state.fr->pmedata) : 0,
+                        state.runScheduleWork.simulationWork.useNvshmem,
+                        state.runScheduleWork.simulationWork.useGpuFBufferOpsWhenAllowed,
+                        state.cr->commMySim,
+                        state.wcycle.get());
+                state.fr->stateGpu = state.stateGpu.get();
             }
 
             GMX_ASSERT(stopHandlerBuilder_, "Runner must provide StopHandlerBuilder to simulator.");
             SimulatorBuilder simulatorBuilder;
 
-            simulatorBuilder.add(SimulatorStateData(
-                    globalState.get(), localState, &observablesHistory, &enerd.value(), &ekind.value()));
+            simulatorBuilder.add(SimulatorStateData(state.globalState.get(),
+                                                    state.localState,
+                                                    &state.observablesHistory,
+                                                    &state.enerd.value(),
+                                                    &state.ekind.value()));
             simulatorBuilder.add(std::move(membedHolder));
             simulatorBuilder.add(std::move(stopHandlerBuilder_));
-            simulatorBuilder.add(SimulatorConfig(mdrunOptions, startingBehavior, &runScheduleWork));
+            simulatorBuilder.add(SimulatorConfig(mdrunOptions, startingBehavior, &state.runScheduleWork));
 
 
-            simulatorBuilder.add(SimulatorEnv(fplog, cr, ms, mdlog, oenv, &observablesReducerBuilder));
-            simulatorBuilder.add(Profiling(&nrnb, walltime_accounting, wcycle.get()));
+            simulatorBuilder.add(SimulatorEnv(
+                    state.fplog, state.cr, ms, state.mdlog, oenv, &state.observablesReducerBuilder));
+            simulatorBuilder.add(Profiling(&state.nrnb, state.walltime_accounting, state.wcycle.get()));
             simulatorBuilder.add(ConstraintsParam(
-                    constr.get(),
-                    enforcedRotation ? enforcedRotation->getLegacyEnfrot() : nullptr,
-                    vsite.get()));
+                    state.constr.get(),
+                    state.enforcedRotation ? state.enforcedRotation->getLegacyEnfrot() : nullptr,
+                    state.vsite.get()));
             // TODO: Separate `fr` to a separate add, and make the `build` handle the coupling sensibly.
-            simulatorBuilder.add(LegacyInput(
-                    static_cast<int>(filenames.size()), filenames.data(), inputrec.get(), fr.get()));
+            simulatorBuilder.add(LegacyInput(static_cast<int>(filenames.size()),
+                                             filenames.data(),
+                                             state.inputrec.get(),
+                                             state.fr.get()));
             simulatorBuilder.add(ReplicaExchangeParameters(replExParams));
-            simulatorBuilder.add(InteractiveMD(imdSession.get()));
-            simulatorBuilder.add(SimulatorModules(mdModules->outputProvider(), mdModules->notifiers()));
-            simulatorBuilder.add(CenterOfMassPulling(pull_work));
+            simulatorBuilder.add(InteractiveMD(state.imdSession.get()));
+            simulatorBuilder.add(SimulatorModules(state.mdModules->outputProvider(),
+                                                  state.mdModules->notifiers()));
+            simulatorBuilder.add(CenterOfMassPulling(state.pull_work));
             // Todo move to an MDModule
-            simulatorBuilder.add(IonSwapping(swap.get()));
-            simulatorBuilder.add(TopologyData(mtop, &localTopology, mdAtoms.get()));
-            simulatorBuilder.add(BoxDeformationHandle(deform.get()));
+            simulatorBuilder.add(IonSwapping(state.swap.get()));
+            simulatorBuilder.add(TopologyData(state.mtop, &*state.localTopology, state.mdAtoms.get()));
+            simulatorBuilder.add(BoxDeformationHandle(state.deform.get()));
             simulatorBuilder.add(std::move(modularSimulatorCheckpointData));
 
             // build simulator object based on user-input
-            simulator = simulatorBuilder.build(useModularSimulator, deviceStreamManager.get());
+            state.simulator =
+                    simulatorBuilder.build(useModularSimulator, state.deviceStreamManager.get());
         }
         else
         {
-            walltime_accounting = walltime_accounting_init(gmx_omp_nthreads_get(ModuleMultiThread::Pme));
+            state.walltime_accounting =
+                    walltime_accounting_init(gmx_omp_nthreads_get(ModuleMultiThread::Pme));
         }
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
@@ -2520,56 +2545,42 @@ void Mdrunner::setUp(MdrunnerState& state)
 
 void Mdrunner::run(MdrunnerState& state)
 {
-    auto& walltime_accounting = state.walltime_accounting;
-    auto& mtop                = state.mtop;
-    auto& fplog               = state.fplog;
-    auto& mdlog               = state.mdlog;
-    auto& inputrec            = state.inputrec;
-    auto& cr                  = state.cr;
-    auto& runScheduleWork     = state.runScheduleWork;
-    auto& wcycle              = state.wcycle;
-    auto& nrnb                = state.nrnb;
-    auto& pmedata             = state.pmedata;
-    auto& pull_work           = state.pull_work;
-    auto& deviceStreamManager = state.deviceStreamManager;
-    auto& fr                  = state.fr;
-    auto& simulator           = state.simulator;
 
     std::optional<gmx_wallclock_gpu_pme_t> pmeGpuTimings;
     try
     {
-        if (thisRankHasPPDuty(cr->dd))
+        if (thisRankHasPPDuty(state.cr->dd))
         {
-            simulator->run();
+            state.simulator->run();
 
-            if (inputrec->bPull)
+            if (state.inputrec->bPull)
             {
-                finish_pull(pull_work);
+                finish_pull(state.pull_work);
             }
             // Ensure that with NVSHMEM, the collective deallocation
             // of PME force buffers occurs at the same time as pmedata
             // is destructed on the PME-only ranks.
-            fr->pmePpComm.reset(nullptr);
-            if (fr->pmedata)
+            state.fr->pmePpComm.reset(nullptr);
+            if (state.fr->pmedata)
             {
-                pmeGpuTimings = pme_gpu_get_timings(*fr->pmedata);
+                pmeGpuTimings = pme_gpu_get_timings(*state.fr->pmedata);
                 // Destruct pmedata on PP ranks to match the behaviour
                 // on PME-only ranks.
-                fr->pmedata.reset(nullptr);
+                state.fr->pmedata.reset(nullptr);
             }
         }
         else
         {
             /* do PME only */
-            const PmeOnlySimulationWorkload pmeOnlySimulationWork(runScheduleWork.simulationWork);
-            pmeGpuTimings = gmx_pmeonly(std::move(pmedata),
-                                        *cr->dd,
-                                        &nrnb,
-                                        wcycle.get(),
-                                        walltime_accounting,
-                                        inputrec.get(),
+            const PmeOnlySimulationWorkload pmeOnlySimulationWork(state.runScheduleWork.simulationWork);
+            pmeGpuTimings = gmx_pmeonly(std::move(state.pmedata),
+                                        *state.cr->dd,
+                                        &state.nrnb,
+                                        state.wcycle.get(),
+                                        state.walltime_accounting,
+                                        state.inputrec.get(),
                                         pmeOnlySimulationWork,
-                                        deviceStreamManager.get());
+                                        state.deviceStreamManager.get());
         }
 
         if (!hwinfo_->deviceInfoList.empty())
@@ -2579,22 +2590,22 @@ void Mdrunner::run(MdrunnerState& state)
             stopGpuProfiler();
         }
 
-        wallcycle_stop(wcycle.get(), WallCycleCounter::Run);
+        wallcycle_stop(state.wcycle.get(), WallCycleCounter::Run);
 
         /* Finish up, write some stuff
          * if rerunMD, don't write last frame again
          */
-        finish_run(fplog,
-                   mdlog,
-                   cr,
-                   *inputrec,
-                   &nrnb,
-                   wcycle.get(),
-                   walltime_accounting,
-                   fr ? fr->nbv.get() : nullptr,
+        finish_run(state.fplog,
+                   state.mdlog,
+                   state.cr,
+                   *state.inputrec,
+                   &state.nrnb,
+                   state.wcycle.get(),
+                   state.walltime_accounting,
+                   state.fr ? state.fr->nbv.get() : nullptr,
                    pmeGpuTimings,
-                   mtop.natoms,
-                   EI_DYNAMICS(inputrec->eI) && !isMultiSim(ms));
+                   state.mtop.natoms,
+                   EI_DYNAMICS(state.inputrec->eI) && !isMultiSim(ms));
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
 } // Mdrunner::run
@@ -2602,11 +2613,9 @@ void Mdrunner::run(MdrunnerState& state)
 int Mdrunner::tearDown(std::unique_ptr<MdrunnerState> ownedState)
 {
     MdrunnerState& state = *ownedState;
-    auto&          fplog = state.fplog;
-    auto&          cr    = state.cr;
 
     /* Does what it says */
-    print_date_and_time(fplog, cr->commMyGroup.rank(), "Finished mdrun", gmx_gettime());
+    print_date_and_time(state.fplog, state.cr->commMyGroup.rank(), "Finished mdrun", gmx_gettime());
 
     // Take out what is needed after the state is destroyed
     PhysicalNodeCommunicator    physicalNodeComm     = std::move(*state.physicalNodeComm);
