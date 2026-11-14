@@ -56,10 +56,8 @@ namespace gmx
 
 /*! \brief Membed SimulatorBuilder parameter type.
  *
- * Does not (yet) encapsulate ownership semantics of resources. Simulator is
- * not (necessarily) granted ownership of resources. Client is responsible for
- * maintaining the validity of resources for the life time of the Simulator,
- * then for cleaning up those resources.
+ * Owns the membrane embedding data. The simulator takes ownership of the
+ * holder when it is built, so the data lives as long as the simulator.
  */
 class MembedHolder
 {

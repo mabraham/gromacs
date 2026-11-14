@@ -41,6 +41,8 @@
 #define GMX_MDRUN_ISIMULATOR_H
 
 #include "gromacs/mdlib/stophandler.h"
+#include "gromacs/mdrun/membedholder.h"
+#include "gromacs/mdrun/replicaexchange.h"
 
 class energyhistory_t;
 class gmx_ekindata_t;
@@ -48,7 +50,6 @@ struct gmx_enerdata_t;
 struct gmx_enfrot;
 struct gmx_localtop_t;
 struct gmx_mtop_t;
-struct gmx_membed_t;
 struct gmx_multisim_t;
 struct gmx_output_env_t;
 struct gmx_wallcycle;
@@ -64,7 +65,6 @@ class t_state;
 
 namespace gmx
 {
-struct ReplicaExchangeParameters;
 enum class StartingBehavior;
 class BoxDeformation;
 class Constraints;
@@ -143,7 +143,7 @@ public:
                         gmx_ekindata_t*                     ekind,
                         MdrunScheduleWorkload*              runScheduleWork,
                         const ReplicaExchangeParameters&    replExParams,
-                        gmx_membed_t*                       membed,
+                        MembedHolder                        membedHolder,
                         gmx_walltime_accounting*            walltime_accounting,
                         std::unique_ptr<StopHandlerBuilder> stopHandlerBuilder,
                         bool                                doRerun) :
@@ -180,7 +180,8 @@ public:
         ekind_(ekind),
         runScheduleWork_(runScheduleWork),
         replExParams_(replExParams),
-        membed_(membed),
+        membedHolder_(std::move(membedHolder)),
+        membed_(membedHolder_.membed()),
         wallTimeAccounting_(walltime_accounting),
         stopHandlerBuilder_(std::move(stopHandlerBuilder)),
         doRerun_(doRerun)
@@ -252,8 +253,10 @@ public:
     //! Schedule of work for each MD step for this task.
     MdrunScheduleWorkload* runScheduleWork_;
     //! Parameters for replica exchange algorihtms.
-    const ReplicaExchangeParameters& replExParams_;
-    //! Parameters for membrane embedding.
+    const ReplicaExchangeParameters replExParams_;
+    //! Owns the membrane embedding data.
+    MembedHolder membedHolder_;
+    //! Parameters for membrane embedding, owned by membedHolder_.
     gmx_membed_t* membed_;
     //! Manages wall time accounting.
     gmx_walltime_accounting* wallTimeAccounting_;

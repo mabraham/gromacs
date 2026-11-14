@@ -170,7 +170,7 @@ std::unique_ptr<ISimulator> SimulatorBuilder::build(bool                       u
                                                       simulatorStateData_->ekindata_p,
                                                       simulatorConfig_->runScheduleWork_,
                                                       *replicaExchangeParameters_,
-                                                      membedHolder_->membed(),
+                                                      std::move(*membedHolder_),
                                                       profiling_->wallTimeAccounting_,
                                                       std::move(stopHandlerBuilder_),
                                                       simulatorConfig_->mdrunOptions_.rerun),
@@ -210,7 +210,7 @@ std::unique_ptr<ISimulator> SimulatorBuilder::build(bool                       u
                                                                 simulatorStateData_->ekindata_p,
                                                                 simulatorConfig_->runScheduleWork_,
                                                                 *replicaExchangeParameters_,
-                                                                membedHolder_->membed(),
+                                                                std::move(*membedHolder_),
                                                                 profiling_->wallTimeAccounting_,
                                                                 std::move(stopHandlerBuilder_),
                                                                 simulatorConfig_->mdrunOptions_.rerun));
