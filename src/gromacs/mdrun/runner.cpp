@@ -853,17 +853,20 @@ struct MdrunnerState
     std::unique_ptr<BoxDeformation>         deform;
     std::unique_ptr<VirtualSitesHandler>    vsite;
     t_nrnb                                  nrnb;
-    PmeGpuProgramStorage                    pmeGpuProgram;
-    std::unique_ptr<gmx_pme_t>              pmedata;
     pull_t*                                 pull_work = nullptr;
 
-    // Destroyed after the streams that use it
-    std::unique_ptr<DeviceContext>       ownedDeviceContext;
+    // Destroyed after everything that uses it
+    std::unique_ptr<DeviceContext> ownedDeviceContext;
+    // Holds kernels built in the context, for PME
+    PmeGpuProgramStorage pmeGpuProgram;
+    // Destroyed after the objects that use its streams
     std::unique_ptr<DeviceStreamManager> deviceStreamManager;
     std::unique_ptr<NvshmemManager>      nvshmemManager;
     unique_cptr<t_disresdata>            disresdata;
     // Destroyed before the streams
     std::unique_ptr<t_forcerec> fr;
+    // Usually handed on by the run, otherwise destroyed before the PME GPU program it uses
+    std::unique_ptr<gmx_pme_t> pmedata;
     // Force providers might also use the GPU
     std::unique_ptr<MDModules> mdModules;
     std::unique_ptr<t_state>   localStateInstance;
