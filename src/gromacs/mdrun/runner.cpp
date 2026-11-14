@@ -818,18 +818,74 @@ static bool localStateHasFillerParticles(const gmx_mtop_t& mtop,
     return haveFillerParticlesInLocalState;
 }
 
+/*! \brief The data that mdrunner() sets up, runs with and tears down
+ *
+ * Holds the locals of mdrunner() that are used after setup, or that
+ * objects built during setup refer to. Members are declared in the
+ * order mdrunner() makes them.
+ */
+struct MdrunnerState
+{
+    std::unique_ptr<t_forcerec>             fr;
+    gmx_walltime_accounting_t               walltime_accounting = nullptr;
+    gmx_mtop_t                              mtop;
+    FILE*                                   fplog = nullptr;
+    std::optional<LoggerOwner>              logOwner;
+    MDLogger                                mdlog;
+    std::unique_ptr<t_inputrec>             inputrec;
+    std::unique_ptr<t_state>                globalState;
+    std::optional<MpiComm>                  mpiCommSimulation;
+    std::optional<PhysicalNodeCommunicator> physicalNodeComm;
+    ObservablesReducerBuilder               observablesReducerBuilder;
+    t_disresdata*                           disresdata         = nullptr;
+    ObservablesHistory                      observablesHistory = {};
+    UpdateGroups                            updateGroups;
+    LocalAtomSetManager                     atomSets;
+    std::unique_ptr<t_state>                localStateInstance;
+    t_state*                                localState = nullptr;
+    std::optional<gmx_localtop_t>           localTopology;
+    std::unique_ptr<gmx_domdec_t>           domdec;
+    std::unique_ptr<t_commrec>              commRec;
+    t_commrec*                              cr = nullptr;
+    MdrunScheduleWorkload                   runScheduleWork;
+    std::unique_ptr<DeviceContext>          ownedDeviceContext;
+    std::unique_ptr<DeviceStreamManager>    deviceStreamManager;
+    std::unique_ptr<NvshmemManager>         nvshmemManager;
+    bool                                    bEnableFPE = false;
+    std::unique_ptr<gmx_wallcycle>          wcycle;
+    std::unique_ptr<BoxDeformation>         deform;
+    std::unique_ptr<MDAtoms>                mdAtoms;
+    std::unique_ptr<VirtualSitesHandler>    vsite;
+    t_nrnb                                  nrnb;
+    PmeGpuProgramStorage                    pmeGpuProgram;
+    std::unique_ptr<gmx_pme_t>              pmedata;
+    // Objects built for the run
+    pull_t*                                 pull_work = nullptr;
+    std::unique_ptr<EnforcedRotation>       enforcedRotation;
+    std::unique_ptr<SwapCoords>             swap;
+    std::unique_ptr<Constraints>            constr;
+    std::optional<gmx_enerdata_t>           enerd;
+    std::optional<gmx_ekindata_t>           ekind;
+    std::unique_ptr<ImdSession>             imdSession;
+    std::unique_ptr<StatePropagatorDataGpu> stateGpu;
+    std::unique_ptr<ISimulator>             simulator;
+};
+
 int Mdrunner::mdrunner()
 {
-    std::unique_ptr<t_forcerec> fr;
-    real                        ewaldcoeff_q     = 0;
-    real                        ewaldcoeff_lj    = 0;
-    int                         nChargePerturbed = -1, nTypePerturbed = 0;
-    gmx_walltime_accounting_t   walltime_accounting = nullptr;
-    MembedHolder                membedHolder(filenames.size(), filenames.data());
+    MdrunnerState state;
+
+    auto& fr                  = state.fr;
+    auto& walltime_accounting = state.walltime_accounting;
+
+    real         ewaldcoeff_q     = 0;
+    real         ewaldcoeff_lj    = 0;
+    int          nChargePerturbed = -1, nTypePerturbed = 0;
+    MembedHolder membedHolder(filenames.size(), filenames.data());
 
     /* CAUTION: threads may be started later on in this function, so
        cr doesn't reflect the final parallel state right now */
-    gmx_mtop_t mtop;
+    auto& mtop = state.mtop;
 
     /* TODO: inputrec should tell us whether we use an algorithm, not a file option */
     const bool doEssentialDynamics = opt2bSet("-ei", filenames.size(), filenames.data());
@@ -853,7 +909,7 @@ int Mdrunner::mdrunner()
     auto bondedTarget      = findTaskTarget(bonded_opt);
     auto updateTarget      = findTaskTarget(update_opt);
 
-    FILE* fplog = nullptr;
+    auto& fplog = state.fplog;
     // If we are appending, we don't write log output because we need
     // to check that the old log file matches what the checkpoint file
     // expects. Otherwise, we should start to write log output now if
@@ -862,9 +918,10 @@ int Mdrunner::mdrunner()
     {
         fplog = gmx_fio_getfp(logFileHandle);
     }
-    const bool  isSimulationMainRank = findIsSimulationMainRank(ms, simulationCommunicator);
-    LoggerOwner logOwner(buildLogger(fplog, isSimulationMainRank));
-    MDLogger    mdlog(logOwner.logger());
+    const bool isSimulationMainRank = findIsSimulationMainRank(ms, simulationCommunicator);
+    auto&      logOwner = state.logOwner.emplace(buildLogger(fplog, isSimulationMainRank));
+    auto&      mdlog    = state.mdlog;
+    mdlog               = logOwner.logger();
 
     gmx_print_detected_hardware(fplog, isSimulationMainRank && isMainSim(ms), mdlog, hwinfo_);
 
@@ -877,8 +934,8 @@ int Mdrunner::mdrunner()
 
     // Note: legacy program logic relies on checking whether these pointers are assigned.
     // Objects may or may not be allocated later.
-    std::unique_ptr<t_inputrec> inputrec;
-    std::unique_ptr<t_state>    globalState;
+    auto& inputrec    = state.inputrec;
+    auto& globalState = state.globalState;
 
     auto partialDeserializedTpr = std::make_unique<PartialDeserializedTprFile>();
 
@@ -975,12 +1032,13 @@ int Mdrunner::mdrunner()
 
     GMX_RELEASE_ASSERT(!GMX_MPI || ms || simulationCommunicator != MPI_COMM_NULL,
                        "Must have valid communicator unless running a multi-simulation");
-    MpiComm mpiCommSimulation(simulationCommunicator);
+    auto& mpiCommSimulation = state.mpiCommSimulation.emplace(simulationCommunicator);
 
     const bool simulationIsParallel = mpiCommSimulation.isParallel();
     const bool isMainSimulationRank = mpiCommSimulation.isMainRank();
 
-    PhysicalNodeCommunicator physicalNodeComm(libraryWorldCommunicator, gmx_physicalnode_id_hash());
+    auto& physicalNodeComm =
+            state.physicalNodeComm.emplace(libraryWorldCommunicator, gmx_physicalnode_id_hash());
 
     if (simulationIsParallel)
     {
@@ -1087,7 +1145,7 @@ int Mdrunner::mdrunner()
                     && useDDWithSingleRank != 0)
                 || useDDWithSingleRank == 1);
 
-    ObservablesReducerBuilder observablesReducerBuilder;
+    auto& observablesReducerBuilder = state.observablesReducerBuilder;
 
     // Build restraints.
     // TODO: hide restraint implementation details from Mdrunner.
@@ -1211,7 +1269,7 @@ int Mdrunner::mdrunner()
      */
 
     /* This needs to be called before read_checkpoint to extend the state */
-    t_disresdata* disresdata;
+    auto& disresdata = state.disresdata;
     snew(disresdata, 1);
     init_disres(fplog,
                 mtop,
@@ -1245,7 +1303,7 @@ int Mdrunner::mdrunner()
     }
 #endif
 
-    ObservablesHistory observablesHistory = {};
+    auto& observablesHistory = state.observablesHistory;
 
     auto modularSimulatorCheckpointData = std::make_unique<ReadCheckpointDataHolder>();
     if (startingBehavior != StartingBehavior::NewSimulation)
@@ -1350,8 +1408,8 @@ int Mdrunner::mdrunner()
 
     // We need to decide on update groups early, as this affects
     // inter-domain communication distances.
-    auto         updateGroupingsPerMoleculeTypeResult = makeUpdateGroupingsPerMoleculeType(mtop);
-    UpdateGroups updateGroups;
+    auto  updateGroupingsPerMoleculeTypeResult = makeUpdateGroupingsPerMoleculeType(mtop);
+    auto& updateGroups                         = state.updateGroups;
     if (std::holds_alternative<std::string>(updateGroupingsPerMoleculeTypeResult))
     {
         GMX_LOG(mdlog.warning)
@@ -1524,18 +1582,18 @@ int Mdrunner::mdrunner()
     // become an MDModule that is made only when another module
     // requires it (e.g. pull, CompEl, density fitting), so that we
     // don't update the local atom sets unilaterally every step.
-    LocalAtomSetManager atomSets;
+    auto& atomSets = state.atomSets;
 
     // Local state and topology are declared (and perhaps constructed)
     // now, because DD needs them for the LocalTopologyChecker, but
     // they do not contain valid data until after the first DD
     // partition.
-    std::unique_ptr<t_state> localStateInstance;
-    t_state*                 localState;
-    gmx_localtop_t           localTopology(mtop.ffparams);
+    auto& localStateInstance = state.localStateInstance;
+    auto& localState         = state.localState;
+    auto& localTopology      = state.localTopology.emplace(mtop.ffparams);
 
-    std::unique_ptr<gmx_domdec_t> domdec;
-    std::unique_ptr<t_commrec>    commRec;
+    auto& domdec  = state.domdec;
+    auto& commRec = state.commRec;
     // When there is a PME rank to communicate with, contains settings
     // to build a PmePpComm object.
     std::optional<PmePpCommSettings> pmePpCommSettings;
@@ -1571,7 +1629,8 @@ int Mdrunner::mdrunner()
         commRec = std::make_unique<t_commrec>(mpiCommSimulation, mpiCommSimulation, nullptr);
     }
 
-    t_commrec* cr = commRec.get();
+    auto& cr = state.cr;
+    cr       = commRec.get();
 
     // Ensure that all atoms within the same update group are in the
     // same periodic image. Otherwise, a simulation that did not use
@@ -1603,7 +1662,7 @@ int Mdrunner::mdrunner()
     GMX_RELEASE_ASSERT(!useGpuPmeDecomposition || devFlags.enableGpuPmeDecomposition,
                        "GPU PME decomposition works only in the cases where it is supported");
 
-    MdrunScheduleWorkload runScheduleWork;
+    auto& runScheduleWork = state.runScheduleWork;
 
     // Also populates the simulation constant workload description.
     // Note: currently the default duty is DUTY_PP | DUTY_PME for all simulations, including those without PME,
@@ -1660,8 +1719,8 @@ int Mdrunner::mdrunner()
 
     // The context outlives the stream manager and everything else
     // that uses the device.
-    std::unique_ptr<DeviceContext>       ownedDeviceContext  = nullptr;
-    std::unique_ptr<DeviceStreamManager> deviceStreamManager = nullptr;
+    auto& ownedDeviceContext  = state.ownedDeviceContext;
+    auto& deviceStreamManager = state.deviceStreamManager;
 
     if (deviceInfo != nullptr)
     {
@@ -1683,7 +1742,7 @@ int Mdrunner::mdrunner()
                 localState->v, makeHostAllocationPolicy(useGpuForUpdate, deviceStreamManager.get()));
     }
 
-    std::unique_ptr<NvshmemManager> nvshmemManager;
+    auto& nvshmemManager = state.nvshmemManager;
     if (runScheduleWork.simulationWork.useNvshmem)
     {
         nvshmemManager = std::make_unique<NvshmemManager>(mdlog, cr->commMySim.comm());
@@ -1758,7 +1817,8 @@ int Mdrunner::mdrunner()
                           hw_opt.nthreads_omp_pme,
                           !thisRankHasPPDuty(cr->dd));
 
-    const bool bEnableFPE = gmxShouldEnableFPExceptions();
+    auto& bEnableFPE = state.bEnableFPE;
+    bEnableFPE       = gmxShouldEnableFPExceptions();
     // FIXME - reconcile with gmx_feenableexcept() call from CommandLineModuleManager::run()
     if (bEnableFPE)
     {
@@ -1797,8 +1857,8 @@ int Mdrunner::mdrunner()
                         "The -resetstep functionality is deprecated, and may be removed in a "
                         "future version.");
     }
-    std::unique_ptr<gmx_wallcycle> wcycle =
-            wallcycle_init(fplog, mdrunOptions.timingOptions.resetStep, cr);
+    auto& wcycle = state.wcycle;
+    wcycle       = wallcycle_init(fplog, mdrunOptions.timingOptions.resetStep, cr);
 
     if (cr->commMySim.isParallel())
     {
@@ -1820,11 +1880,12 @@ int Mdrunner::mdrunner()
                                   &mdrunOptions.checkpointOptions.period);
 
     const bool thisRankHasPmeGpuTask = gpuTaskAssignments.thisRankHasPmeGpuTask();
-    std::unique_ptr<BoxDeformation>      deform;
-    std::unique_ptr<MDAtoms>             mdAtoms;
-    std::unique_ptr<VirtualSitesHandler> vsite;
 
-    t_nrnb nrnb;
+    auto& deform  = state.deform;
+    auto& mdAtoms = state.mdAtoms;
+    auto& vsite   = state.vsite;
+
+    auto& nrnb = state.nrnb;
     if (thisRankHasPPDuty(cr->dd))
     {
         setupNotifier.notify(cr->commMyGroup);
@@ -2082,7 +2143,7 @@ int Mdrunner::mdrunner()
     // Later, this program could contain kernels that might be later
     // re-used as auto-tuning progresses, or subsequent simulations
     // are invoked.
-    PmeGpuProgramStorage pmeGpuProgram;
+    auto& pmeGpuProgram = state.pmeGpuProgram;
     if (thisRankHasPmeGpuTask)
     {
         GMX_RELEASE_ASSERT(
@@ -2095,7 +2156,7 @@ int Mdrunner::mdrunner()
 
     /* Initiate PME if necessary,
      * either on all nodes or on dedicated PME nodes only. */
-    std::unique_ptr<gmx_pme_t> pmedata;
+    auto& pmedata = state.pmedata;
     if (usingPme(inputrec->coulombtype) || usingLJPme(inputrec->vdwtype))
     {
         if (mdAtoms)
@@ -2202,15 +2263,15 @@ int Mdrunner::mdrunner()
 
     // Objects built for the run. They outlive the try block that
     // builds them, so the simulator can be run from a separate one.
-    pull_t*                                 pull_work = nullptr;
-    std::unique_ptr<EnforcedRotation>       enforcedRotation;
-    std::unique_ptr<SwapCoords>             swap;
-    std::unique_ptr<Constraints>            constr;
-    std::optional<gmx_enerdata_t>           enerd;
-    std::optional<gmx_ekindata_t>           ekind;
-    std::unique_ptr<ImdSession>             imdSession;
-    std::unique_ptr<StatePropagatorDataGpu> stateGpu;
-    std::unique_ptr<ISimulator>             simulator;
+    auto& pull_work        = state.pull_work;
+    auto& enforcedRotation = state.enforcedRotation;
+    auto& swap             = state.swap;
+    auto& constr           = state.constr;
+    auto& enerd            = state.enerd;
+    auto& ekind            = state.ekind;
+    auto& imdSession       = state.imdSession;
+    auto& stateGpu         = state.stateGpu;
+    auto& simulator        = state.simulator;
     try
     {
         if (thisRankHasPPDuty(cr->dd))
