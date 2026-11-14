@@ -2511,6 +2511,27 @@ int Mdrunner::mdrunner()
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
 
+    run(state);
+    return tearDown(std::move(ownedState));
+} // Mdrunner::mdrunner
+
+void Mdrunner::run(MdrunnerState& state)
+{
+    auto& walltime_accounting = state.walltime_accounting;
+    auto& mtop                = state.mtop;
+    auto& fplog               = state.fplog;
+    auto& mdlog               = state.mdlog;
+    auto& inputrec            = state.inputrec;
+    auto& cr                  = state.cr;
+    auto& runScheduleWork     = state.runScheduleWork;
+    auto& wcycle              = state.wcycle;
+    auto& nrnb                = state.nrnb;
+    auto& pmedata             = state.pmedata;
+    auto& pull_work           = state.pull_work;
+    auto& deviceStreamManager = state.deviceStreamManager;
+    auto& fr                  = state.fr;
+    auto& simulator           = state.simulator;
+
     std::optional<gmx_wallclock_gpu_pme_t> pmeGpuTimings;
     try
     {
@@ -2573,9 +2594,7 @@ int Mdrunner::mdrunner()
                    EI_DYNAMICS(inputrec->eI) && !isMultiSim(ms));
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
-
-    return tearDown(std::move(ownedState));
-} // Mdrunner::mdrunner
+} // Mdrunner::run
 
 int Mdrunner::tearDown(std::unique_ptr<MdrunnerState> ownedState)
 {

@@ -199,6 +199,9 @@ private:
     /*! \brief Constructor. */
     explicit Mdrunner(std::unique_ptr<MDModules> mdModules);
 
+    /*! \brief Runs the simulation that mdrunner() set up. */
+    void run(MdrunnerState& state);
+
     /*! \brief Destroys what mdrunner() set up, once the run is over.
      *
      * \returns The value for mdrunner() to return. */
