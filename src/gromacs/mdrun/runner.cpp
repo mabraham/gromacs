@@ -2557,6 +2557,37 @@ int Mdrunner::mdrunner()
     }
     GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
 
+    return tearDown(state);
+} // Mdrunner::mdrunner
+
+int Mdrunner::tearDown(MdrunnerState& state)
+{
+    auto& fr                  = state.fr;
+    auto& walltime_accounting = state.walltime_accounting;
+    auto& fplog               = state.fplog;
+    auto& globalState         = state.globalState;
+    auto& physicalNodeComm    = *state.physicalNodeComm;
+    auto& disresdata          = state.disresdata;
+    auto& localStateInstance  = state.localStateInstance;
+    auto& domdec              = state.domdec;
+    auto& commRec             = state.commRec;
+    auto& cr                  = state.cr;
+    auto& ownedDeviceContext  = state.ownedDeviceContext;
+    auto& deviceStreamManager = state.deviceStreamManager;
+    auto& nvshmemManager      = state.nvshmemManager;
+    auto& bEnableFPE          = state.bEnableFPE;
+    auto& mdAtoms             = state.mdAtoms;
+    auto& enforcedRotation    = state.enforcedRotation;
+    auto& swap                = state.swap;
+    auto& constr              = state.constr;
+    auto& enerd               = state.enerd;
+    auto& ekind               = state.ekind;
+    auto& imdSession          = state.imdSession;
+    auto& stateGpu            = state.stateGpu;
+    auto& simulator           = state.simulator;
+    // Only used with thread-MPI
+    [[maybe_unused]] auto& mpiCommSimulation = *state.mpiCommSimulation;
+
     /* Does what it says */
     print_date_and_time(fplog, cr->commMyGroup.rank(), "Finished mdrun", gmx_gettime());
 
@@ -2666,7 +2697,7 @@ int Mdrunner::mdrunner()
 #endif
 
     return rc;
-} // Mdrunner::mdrunner
+} // Mdrunner::tearDown
 
 Mdrunner::~Mdrunner()
 {

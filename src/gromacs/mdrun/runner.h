@@ -78,6 +78,7 @@ class IRestraintPotential; // defined in restraint/restraintpotential.h
 class RestraintManager;
 class SimulationContext;
 class StopHandlerBuilder;
+struct MdrunnerState;
 
 /*! \libinternal \brief Runner object for supporting setup and execution of mdrun.
  *
@@ -197,6 +198,11 @@ public:
 private:
     /*! \brief Constructor. */
     explicit Mdrunner(std::unique_ptr<MDModules> mdModules);
+
+    /*! \brief Destroys what mdrunner() set up, once the run is over.
+     *
+     * \returns The value for mdrunner() to return. */
+    int tearDown(MdrunnerState& state);
 
     //! Parallelism-related user options.
     gmx_hw_opt_t hw_opt;
