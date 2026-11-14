@@ -2200,10 +2200,19 @@ int Mdrunner::mdrunner()
         signal_handler_install();
     }
 
-    std::optional<gmx_wallclock_gpu_pme_t> pmeGpuTimings;
+    // Objects built for the run. They outlive the try block that
+    // builds them, so the simulator can be run from a separate one.
+    pull_t*                                 pull_work = nullptr;
+    std::unique_ptr<EnforcedRotation>       enforcedRotation;
+    std::unique_ptr<SwapCoords>             swap;
+    std::unique_ptr<Constraints>            constr;
+    std::optional<gmx_enerdata_t>           enerd;
+    std::optional<gmx_ekindata_t>           ekind;
+    std::unique_ptr<ImdSession>             imdSession;
+    std::unique_ptr<StatePropagatorDataGpu> stateGpu;
+    std::unique_ptr<ISimulator>             simulator;
     try
     {
-        pull_t* pull_work = nullptr;
         if (thisRankHasPPDuty(cr->dd))
         {
             // Give ownership to the forcerec for the actual workload
@@ -2234,7 +2243,6 @@ int Mdrunner::mdrunner()
                 }
             }
 
-            std::unique_ptr<EnforcedRotation> enforcedRotation;
             if (inputrec->bRot)
             {
                 /* Initialize enforced rotation code */
@@ -2251,7 +2259,6 @@ int Mdrunner::mdrunner()
                                             startingBehavior);
             }
 
-            std::unique_ptr<SwapCoords> swap;
             if (inputrec->eSwapCoords != SwapType::No)
             {
                 /* Initialize ion swapping code */
@@ -2271,7 +2278,7 @@ int Mdrunner::mdrunner()
 
             /* Let makeConstraints know whether we have essential dynamics constraints. */
             const bool hasMassPerturbedAtoms = haveFepPerturbedMasses(mtop);
-            auto       constr                = makeConstraints(
+            constr                           = makeConstraints(
                     mtop,
                     *inputrec,
                     pull_work,
@@ -2289,8 +2296,8 @@ int Mdrunner::mdrunner()
                     (cr->dd && cr->dd->mpiComm().isParallel()) ? &observablesReducerBuilder : nullptr);
 
             /* Energy terms and groups */
-            gmx_enerdata_t enerd(mtop.groups.groups[SimulationAtomGroupType::EnergyOutput].size(),
-                                 &inputrec->fepvals->all_lambda);
+            enerd.emplace(mtop.groups.groups[SimulationAtomGroupType::EnergyOutput].size(),
+                          &inputrec->fepvals->all_lambda);
 
             // cos acceleration is only supported by md, but older tpr
             // files might still combine it with other integrators
@@ -2298,29 +2305,28 @@ int Mdrunner::mdrunner()
                                "cos_acceleration is only supported by integrator=md");
 
             /* Kinetic energy data */
-            gmx_ekindata_t ekind(constArrayRefFromArray(inputrec->opts.ref_t, inputrec->opts.ngtc),
-                                 inputrec->ensembleTemperatureSetting,
-                                 inputrec->ensembleTemperature,
-                                 fr->haveBoxDeformation,
-                                 inputrec->cos_accel,
-                                 gmx_omp_nthreads_get(ModuleMultiThread::Update));
+            ekind.emplace(constArrayRefFromArray(inputrec->opts.ref_t, inputrec->opts.ngtc),
+                          inputrec->ensembleTemperatureSetting,
+                          inputrec->ensembleTemperature,
+                          fr->haveBoxDeformation,
+                          inputrec->cos_accel,
+                          gmx_omp_nthreads_get(ModuleMultiThread::Update));
 
             /* Set up interactive MD (IMD) */
-            auto imdSession =
-                    makeImdSession(inputrec.get(),
-                                   cr->commMyGroup,
-                                   cr->dd,
-                                   wcycle.get(),
-                                   &enerd,
-                                   ms,
-                                   mtop,
-                                   mdlog,
-                                   cr->commMySim.isMainRank() ? globalState->x : ArrayRef<RVec>{},
-                                   filenames.size(),
-                                   filenames.data(),
-                                   oenv,
-                                   mdrunOptions.imdOptions,
-                                   startingBehavior);
+            imdSession = makeImdSession(inputrec.get(),
+                                        cr->commMyGroup,
+                                        cr->dd,
+                                        wcycle.get(),
+                                        &enerd.value(),
+                                        ms,
+                                        mtop,
+                                        mdlog,
+                                        cr->commMySim.isMainRank() ? globalState->x : ArrayRef<RVec>{},
+                                        filenames.size(),
+                                        filenames.data(),
+                                        oenv,
+                                        mdrunOptions.imdOptions,
+                                        startingBehavior);
 
             if (haveDDAtomOrdering(*cr))
             {
@@ -2369,7 +2375,6 @@ int Mdrunner::mdrunner()
                 }
             }
 
-            std::unique_ptr<StatePropagatorDataGpu> stateGpu;
             if (gpusWereDetected && needStateGpu(runScheduleWork.simulationWork))
             {
                 GpuApiCallBehavior transferKind =
@@ -2393,7 +2398,7 @@ int Mdrunner::mdrunner()
             SimulatorBuilder simulatorBuilder;
 
             simulatorBuilder.add(SimulatorStateData(
-                    globalState.get(), localState, &observablesHistory, &enerd, &ekind));
+                    globalState.get(), localState, &observablesHistory, &enerd.value(), &ekind.value()));
             simulatorBuilder.add(std::move(membedHolder));
             simulatorBuilder.add(std::move(stopHandlerBuilder_));
             simulatorBuilder.add(SimulatorConfig(mdrunOptions, startingBehavior, &runScheduleWork));
@@ -2418,8 +2423,21 @@ int Mdrunner::mdrunner()
             simulatorBuilder.add(BoxDeformationHandle(deform.get()));
             simulatorBuilder.add(std::move(modularSimulatorCheckpointData));
 
-            // build and run simulator object based on user-input
-            auto simulator = simulatorBuilder.build(useModularSimulator, deviceStreamManager.get());
+            // build simulator object based on user-input
+            simulator = simulatorBuilder.build(useModularSimulator, deviceStreamManager.get());
+        }
+        else
+        {
+            walltime_accounting = walltime_accounting_init(gmx_omp_nthreads_get(ModuleMultiThread::Pme));
+        }
+    }
+    GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR
+
+    std::optional<gmx_wallclock_gpu_pme_t> pmeGpuTimings;
+    try
+    {
+        if (thisRankHasPPDuty(cr->dd))
+        {
             simulator->run();
 
             if (inputrec->bPull)
@@ -2442,7 +2460,6 @@ int Mdrunner::mdrunner()
         {
             /* do PME only */
             const PmeOnlySimulationWorkload pmeOnlySimulationWork(runScheduleWork.simulationWork);
-            walltime_accounting = walltime_accounting_init(gmx_omp_nthreads_get(ModuleMultiThread::Pme));
             pmeGpuTimings = gmx_pmeonly(std::move(pmedata),
                                         *cr->dd,
                                         &nrnb,
@@ -2484,6 +2501,16 @@ int Mdrunner::mdrunner()
 
     try
     {
+        // Destroy the objects built for the run, newest first
+        simulator.reset(nullptr);
+        stateGpu.reset(nullptr);
+        imdSession.reset(nullptr);
+        ekind.reset();
+        enerd.reset();
+        constr.reset(nullptr);
+        swap.reset(nullptr);
+        enforcedRotation.reset(nullptr);
+
         // FIXME: this is only here to manually unpin mdAtoms->chargeA_ and state->x,
         // before we destroy the GPU context(s)
         // Pinned buffers are associated with contexts in CUDA.
